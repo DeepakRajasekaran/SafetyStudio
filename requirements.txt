@@ -1,0 +1,5 @@
+numpy
+matplotlib
+shapely
+PyQt6
+ezdxf
