@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsPolygonItem,
     QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsPathItem,
-    QGridLayout, QTabWidget, QDialog, QRadioButton,
+    QGraphicsTextItem, QGridLayout, QTabWidget, QDialog, QRadioButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel, 
     QLineEdit, QGroupBox, QMessageBox, QListWidget, QTextEdit, QFrame, 
     QFileDialog, QScrollArea, QToolButton, QCheckBox, QComboBox
@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath
 
 SCALE = 100.0  # 1m = 100px
-
+VERSION = "1.1.0 beta"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -581,6 +581,12 @@ class EditorTab(QWidget):
             b.setStyleSheet("background:#444;color:white;padding:4px"); hb.addWidget(b)
             c=QPushButton("Clr"); c.setFixedWidth(40); c.setStyleSheet("background:#B71C1C;color:white;padding:4px"); c.clicked.connect(lambda _,x=k: self.clear_sh(x))
             hb.addWidget(c); rv.addLayout(hb)
+        
+        rv.addSpacing(20)
+        rv.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
+        gc=QHBoxLayout(); be=QPushButton("Export Config"); bi=QPushButton("Import Config")
+        be.clicked.connect(self.exp_conf); bi.clicked.connect(self.imp_conf)
+        gc.addWidget(be); gc.addWidget(bi); rv.addLayout(gc)
         rv.addStretch(); l.addWidget(r)
         
         self.polys={'FootPrint':[],'L1':[],'L2':[]}
@@ -612,6 +618,102 @@ class EditorTab(QWidget):
         self.upl()
     def get_s(self): return self.sens
 
+    def exp_conf(self):
+        gn = self.main.gn
+        # Serialize geometry to WKT (or keep as is if None)
+        geo_data = {}
+        for k, v in self.polys.items():
+            if v is not None and not v.is_empty:
+                geo_data[k] = v.wkt
+
+        phy_out = {}
+        for k, inputs in gn.phy_inputs.items():
+            phy_out[k] = {
+                'tr': inputs['tr'].text(), 'ac': inputs['ac'].text(), 'ds': inputs['ds'].text(),
+                'pad': inputs['pad'].text(), 'sm': inputs['sm'].text(), 'ls': inputs['ls'].text(),
+                'en': inputs['en_chk'].isChecked() if 'en_chk' in inputs else True
+            }
+
+        d={
+            'phy':phy_out,
+            'bat':{
+                'nl':{'en':True,'c':gn.cnt_nl.text(),'v':gn.v_nl.text(),'w':gn.w_nl.text()},
+                'l1':{'en':gn.chk_l1.isChecked(),'c':gn.cnt_l1.text(),'v':gn.v_l1.text(),'w':gn.w_l1.text(),'sh':gn.sh_l1.isChecked()},
+                'l2':{'en':gn.chk_l2.isChecked(),'c':gn.cnt_l2.text(),'v':gn.v_l2.text(),'w':gn.w_l2.text(),'sh':gn.sh_l2.isChecked()},
+                'fwd':gn.c_fwd.isChecked(),'ip':gn.c_ip.isChecked(),'tn':gn.c_turn.isChecked(),'pn':gn.c_notch.isChecked()
+            },
+            'sns':self.get_s(),
+            'geo':geo_data
+        }
+        f,_=QFileDialog.getSaveFileName(self,"Save","","JSON (*.json)")
+        if f: 
+            with open(f,'w') as fp: json.dump(d,fp,indent=2)
+            
+    def imp_conf(self):
+        gn = self.main.gn
+        f,_=QFileDialog.getOpenFileName(self,"Open","","JSON (*.json)")
+        if f:
+            try:
+                with open(f,'r') as fp: d=json.load(fp)
+                p=d.get('phy',{})
+                
+                # Handle legacy (flat) vs new (nested)
+                if 'NoLoad' in p or 'Load1' in p:
+                    for k, inputs in gn.phy_inputs.items():
+                        if k in p:
+                            v = p[k]
+                            if 'tr' in v: inputs['tr'].setText(v['tr'])
+                            if 'ac' in v: inputs['ac'].setText(v['ac'])
+                            if 'ds' in v: inputs['ds'].setText(v['ds'])
+                            if 'pad' in v: inputs['pad'].setText(v['pad'])
+                            if 'sm' in v: inputs['sm'].setText(v['sm'])
+                            if 'ls' in v: inputs['ls'].setText(v['ls'])
+                            if 'en' in v and 'en_chk' in inputs: inputs['en_chk'].setChecked(v['en'])
+                else:
+                    # Legacy: apply to all
+                    for inputs in gn.phy_inputs.values():
+                        if 'tr' in p: inputs['tr'].setText(p['tr'])
+                        if 'ac' in p: inputs['ac'].setText(p['ac'])
+                        if 'ds' in p: inputs['ds'].setText(p['ds'])
+                        if 'pad' in p: inputs['pad'].setText(p['pad'])
+                        if 'sm' in p: inputs['sm'].setText(p['sm'])
+                        if 'ls' in p: inputs['ls'].setText(p['ls'])
+
+                b=d.get('bat',{})
+                if 'nl' in b:
+                    v=b['nl']
+                    if isinstance(v, dict): gn.cnt_nl.setText(str(v.get('c','6'))); gn.v_nl.setText(str(v.get('v','1.2'))); gn.w_nl.setText(str(v.get('w','30.0')))
+                    else: pass
+                
+                v=b.get('l1', b.get('L1'))
+                if v is not None:
+                    if isinstance(v, dict): gn.chk_l1.setChecked(v.get('en',False)); gn.cnt_l1.setText(str(v.get('c','6'))); gn.v_l1.setText(str(v.get('v','1.0'))); gn.w_l1.setText(str(v.get('w','20.0'))); gn.sh_l1.setChecked(v.get('sh',True))
+                    else: gn.chk_l1.setChecked(bool(v))
+                
+                v=b.get('l2', b.get('L2'))
+                if v is not None:
+                    if isinstance(v, dict): gn.chk_l2.setChecked(v.get('en',False)); gn.cnt_l2.setText(str(v.get('c','6'))); gn.v_l2.setText(str(v.get('v','0.8'))); gn.w_l2.setText(str(v.get('w','15.0'))); gn.sh_l2.setChecked(v.get('sh',True))
+                    else: gn.chk_l2.setChecked(bool(v))
+                
+                if 'fwd' in b: gn.c_fwd.setChecked(b['fwd'])
+                if 'ip' in b: gn.c_ip.setChecked(b['ip'])
+                if 'tn' in b: gn.c_turn.setChecked(b['tn'])
+                if 'pn' in b: gn.c_notch.setChecked(b['pn'])
+                s=d.get('sns',[])
+                if s: self.sens=s; self.upl()
+                g=d.get('geo',{})
+                if g: 
+                    # Handle both legacy (list of points) and new (WKT string) formats
+                    for k, v in g.items():
+                        if isinstance(v, list): # Legacy
+                            try: self.polys[k] = Polygon(v)
+                            except: pass
+                        elif isinstance(v, str): # WKT
+                            try: self.polys[k] = wkt.loads(v)
+                            except: pass
+                    self.render()
+            except Exception as e: QMessageBox.critical(self,"Err",str(e))
+
 # =====================================================================
 # 5. TAB 2: GENERATOR (Logic)
 # =====================================================================
@@ -621,16 +723,33 @@ class GenTab(QWidget):
         
         # Inputs
         f=QFrame(); f.setFixedWidth(500); fl=QVBoxLayout(f)
+        
         gp=QGroupBox("Physics Config"); gl=QGridLayout(gp)
-        
         eq=QLabel("D = v*Tr + v^2/2a + Ds"); eq.setStyleSheet("color:cyan; font-weight:bold; margin-bottom:5px")
-        gl.addWidget(eq,0,0,1,2)
+        gl.addWidget(eq,0,0,1,4)
         
-        self.ptr=self.mk(gl,"Tr (Reaction)",0.3,1); self.pac=self.mk(gl,"a (Decel)",1.0,2)
-        self.pds=self.mk(gl,"Ds (Buffer)",0.15,3); self.ppd=self.mk(gl,"Pad (Static)",0.1,4)
-        self.psm=self.mk(gl,"Sm (Smooth)",0.05,5); 
-        # Scale %
-        self.lat_s=self.mk(gl,"Scale (Width%)",1.0,6)
+        gl.addWidget(QLabel("Param"),1,0)
+        self.phy_inputs = {'NoLoad':{}, 'Load1':{}, 'Load2':{}}
+        
+        # Headers
+        for c, k in enumerate(['NoLoad', 'Load1', 'Load2'], 1):
+            if k == 'NoLoad':
+                lbl=QLabel(k); lbl.setStyleSheet("font-weight:bold"); lbl.setAlignment(Qt.AlignmentFlag.AlignCenter); gl.addWidget(lbl,1,c)
+            else:
+                chk=QCheckBox(k); chk.setChecked(True); gl.addWidget(chk,1,c)
+                self.phy_inputs[k]['en_chk']=chk
+            
+        # Rows
+        p_list=[('Tr (Response_Time) s','tr',0.3),('a (Deceleration) m/s','ac',1.0),('Ds (Buffer)','ds',0.15),('Pad (Static)','pad',0.1),('Sm (Smooth)','sm',0.05),('Scale% (Width)','ls',1.0)]
+        for r, (lbl, ky, val) in enumerate(p_list, 2):
+            gl.addWidget(QLabel(lbl),r,0)
+            for c, k in enumerate(['NoLoad', 'Load1', 'Load2'], 1):
+                le=QLineEdit(str(val)); gl.addWidget(le,r,c); self.phy_inputs[k][ky]=le
+        
+        for k, inp in self.phy_inputs.items():
+            if 'en_chk' in inp:
+                inp['en_chk'].toggled.connect(lambda s, i=inp: [w.setEnabled(s) for ky,w in i.items() if ky!='en_chk'])
+            
         fl.addWidget(gp)
         
         gi=QGroupBox("Plan Auto-Gen"); gl2=QGridLayout(gi)
@@ -638,9 +757,9 @@ class GenTab(QWidget):
         gl2.addWidget(QLabel("Type"),0,0); gl2.addWidget(QLabel("Count"),0,1)
         gl2.addWidget(QLabel("Max V"),0,2); gl2.addWidget(QLabel("Max W"),0,3); gl2.addWidget(QLabel("Shadow"),0,4)
         
-        self.chk_nl=QCheckBox("NoLoad"); self.chk_nl.setChecked(True)
+        self.lbl_nl=QLabel("NoLoad"); self.lbl_nl.setStyleSheet("font-weight:bold")
         self.cnt_nl=QLineEdit("6"); self.v_nl=QLineEdit("1.2"); self.w_nl=QLineEdit("30.0")
-        gl2.addWidget(self.chk_nl,1,0); gl2.addWidget(self.cnt_nl,1,1); gl2.addWidget(self.v_nl,1,2); gl2.addWidget(self.w_nl,1,3)
+        gl2.addWidget(self.lbl_nl,1,0); gl2.addWidget(self.cnt_nl,1,1); gl2.addWidget(self.v_nl,1,2); gl2.addWidget(self.w_nl,1,3)
         
         self.chk_l1=QCheckBox("Load1"); self.chk_l1.setChecked(False)
         self.cnt_l1=QLineEdit("6"); self.v_l1=QLineEdit("1.0"); self.w_l1=QLineEdit("20.0"); self.sh_l1=QCheckBox(); self.sh_l1.setChecked(True)
@@ -661,11 +780,6 @@ class GenTab(QWidget):
         bg=QPushButton("Populate Table"); bg.clicked.connect(self.pop)
         gl2.addWidget(bg,5,0,1,5); fl.addWidget(gi)
         
-        gc=QHBoxLayout(); be=QPushButton("Export Config"); bi=QPushButton("Import Config")
-        be.clicked.connect(self.exp_conf); bi.clicked.connect(self.imp_conf)
-        gc.addWidget(be); gc.addWidget(bi)
-        fl.addLayout(gc)
-        
         xb=QPushButton("EXECUTE BATCH"); xb.setStyleSheet("background:#2E7D32;color:white;font-weight:bold;height:45px")
         xb.clicked.connect(self.exe); fl.addWidget(xb); fl.addStretch(); l.addWidget(f)
         
@@ -681,7 +795,7 @@ class GenTab(QWidget):
             self.tbl.setRowCount(0); idx=1
             
             cfgs = []
-            if self.chk_nl.isChecked(): cfgs.append(('NoLoad', int(self.cnt_nl.text()), float(self.v_nl.text()), float(self.w_nl.text())))
+            cfgs.append(('NoLoad', int(self.cnt_nl.text()), float(self.v_nl.text()), float(self.w_nl.text())))
             if self.chk_l1.isChecked(): cfgs.append(('Load1', int(self.cnt_l1.text()), float(self.v_l1.text()), float(self.w_l1.text())))
             if self.chk_l2.isChecked(): cfgs.append(('Load2', int(self.cnt_l2.text()), float(self.v_l2.text()), float(self.w_l2.text())))
             
@@ -725,75 +839,6 @@ class GenTab(QWidget):
     
     def exe(self): self.main.run_sim()
     
-    def exp_conf(self):
-        # Serialize geometry to WKT (or keep as is if None)
-        geo_data = {}
-        for k, v in self.main.ed.polys.items():
-            if v is not None and not v.is_empty:
-                geo_data[k] = v.wkt
-
-        d={
-            'phy':{'tr':self.ptr.text(),'ac':self.pac.text(),'ds':self.pds.text(),'pad':self.ppd.text(),'sm':self.psm.text(),'ls':self.lat_s.text()},
-            'bat':{
-                'nl':{'en':self.chk_nl.isChecked(),'c':self.cnt_nl.text(),'v':self.v_nl.text(),'w':self.w_nl.text()},
-                'l1':{'en':self.chk_l1.isChecked(),'c':self.cnt_l1.text(),'v':self.v_l1.text(),'w':self.w_l1.text(),'sh':self.sh_l1.isChecked()},
-                'l2':{'en':self.chk_l2.isChecked(),'c':self.cnt_l2.text(),'v':self.v_l2.text(),'w':self.w_l2.text(),'sh':self.sh_l2.isChecked()},
-                'fwd':self.c_fwd.isChecked(),'ip':self.c_ip.isChecked(),'tn':self.c_turn.isChecked(),'pn':self.c_notch.isChecked()
-            },
-            'sns':self.main.ed.get_s(),
-            'geo':geo_data
-        }
-        f,_=QFileDialog.getSaveFileName(self,"Save","","JSON (*.json)")
-        if f: 
-            with open(f,'w') as fp: json.dump(d,fp,indent=2)
-            
-    def imp_conf(self):
-        f,_=QFileDialog.getOpenFileName(self,"Open","","JSON (*.json)")
-        if f:
-            try:
-                with open(f,'r') as fp: d=json.load(fp)
-                p=d.get('phy',{})
-                if 'tr' in p: self.ptr.setText(p['tr'])
-                if 'ac' in p: self.pac.setText(p['ac'])
-                if 'ds' in p: self.pds.setText(p['ds'])
-                if 'pad' in p: self.ppd.setText(p['pad'])
-                if 'sm' in p: self.psm.setText(p['sm'])
-                if 'ls' in p: self.lat_s.setText(p['ls'])
-                b=d.get('bat',{})
-                if 'nl' in b:
-                    v=b['nl']
-                    if isinstance(v, dict): self.chk_nl.setChecked(v.get('en',True)); self.cnt_nl.setText(str(v.get('c','6'))); self.v_nl.setText(str(v.get('v','1.2'))); self.w_nl.setText(str(v.get('w','30.0')))
-                    else: self.chk_nl.setChecked(bool(v))
-                
-                v=b.get('l1', b.get('L1'))
-                if v is not None:
-                    if isinstance(v, dict): self.chk_l1.setChecked(v.get('en',False)); self.cnt_l1.setText(str(v.get('c','6'))); self.v_l1.setText(str(v.get('v','1.0'))); self.w_l1.setText(str(v.get('w','20.0'))); self.sh_l1.setChecked(v.get('sh',True))
-                    else: self.chk_l1.setChecked(bool(v))
-                
-                v=b.get('l2', b.get('L2'))
-                if v is not None:
-                    if isinstance(v, dict): self.chk_l2.setChecked(v.get('en',False)); self.cnt_l2.setText(str(v.get('c','6'))); self.v_l2.setText(str(v.get('v','0.8'))); self.w_l2.setText(str(v.get('w','15.0'))); self.sh_l2.setChecked(v.get('sh',True))
-                    else: self.chk_l2.setChecked(bool(v))
-                
-                if 'fwd' in b: self.c_fwd.setChecked(b['fwd'])
-                if 'ip' in b: self.c_ip.setChecked(b['ip'])
-                if 'tn' in b: self.c_turn.setChecked(b['tn'])
-                if 'pn' in b: self.c_notch.setChecked(b['pn'])
-                s=d.get('sns',[])
-                if s: self.main.ed.sens=s; self.main.ed.upl()
-                g=d.get('geo',{})
-                if g: 
-                    # Handle both legacy (list of points) and new (WKT string) formats
-                    for k, v in g.items():
-                        if isinstance(v, list): # Legacy
-                            try: self.main.ed.polys[k] = Polygon(v)
-                            except: pass
-                        elif isinstance(v, str): # WKT
-                            try: self.main.ed.polys[k] = wkt.loads(v)
-                            except: pass
-                    self.main.ed.render()
-            except Exception as e: QMessageBox.critical(self,"Err",str(e))
-
 # =====================================================================
 # 6. TAB 3: RESULTS
 # =====================================================================
@@ -830,25 +875,83 @@ class ResultsTab(QWidget):
             
             # View Selector
             cmb = QComboBox(); cmb.addItems(["Composite", "Sweep Steps"])
+            cmb.setMinimumHeight(40); cmb.setFont(QFont("Arial", 12))
+            cmb.setStyleSheet("background-color: #36404A; color: white; font-weight: bold;")
             chk_ed = QCheckBox("Edit Poly")
             if items:
                 for l in items[0]['lidars']: cmb.addItem(f"Lidar: {l['name']}")
             
             mid=QWidget(); ml=QVBoxLayout(mid); ml.setContentsMargins(0,0,0,0)
-            ml.addWidget(cmb); ml.addWidget(chk_ed); ml.addWidget(view)
             
-            def on_sel(row=None, items=items, scn=scn, txt=txt, cmb=cmb, ls=ls, chk=chk_ed):
+            chk_lidar = QCheckBox("Show Wrt Lidar"); chk_lidar.setVisible(False)
+            ml.addWidget(cmb); ml.addWidget(chk_lidar); ml.addWidget(chk_ed); ml.addWidget(view)
+            
+            chk_lidar.toggled.connect(lambda: on_sel())
+            
+            def on_sel(row=None, items=items, scn=scn, txt=txt, cmb=cmb, ls=ls, chk=chk_ed, chk_l=chk_lidar):
                 if row is None: row=ls.currentRow()
                 if row<0:return
                 d=items[row]; scn.clear()
                 mode = cmb.currentText()
                 
+                # Frame Logic
+                is_lidar = mode.startswith("Lidar:")
+                chk_l.setVisible(is_lidar)
+                if not is_lidar and chk_l.isChecked(): 
+                    chk_l.blockSignals(True); chk_l.setChecked(False); chk_l.blockSignals(False)
+                
+                wrt_lidar = is_lidar and chk_l.isChecked()
+                if wrt_lidar: chk.setChecked(False); chk.setEnabled(False)
+                else: chk.setEnabled(True)
+                
+                # Transform
+                tf_off=np.array([0.0,0.0]); tf_rot=0.0
+                if wrt_lidar:
+                    ln=mode.split(": ")[1]
+                    for l in d['lidars']:
+                        if l['name']==ln: tf_off=np.array(l['origin']); break
+                
+                c,s=np.cos(-tf_rot),np.sin(-tf_rot); R=np.array([[c,-s],[s,c]])
+                
+                def tf_pts(pts):
+                    a=np.array(pts)-tf_off; a=a@R.T
+                    return [QPointF(p[0]*SCALE,-p[1]*SCALE) for p in a]
+                
                 chk.setVisible(mode == "Composite")
+                
+                lidar_gfx = []
+                def draw_dynamic_lidars():
+                    for item in lidar_gfx: 
+                        if item.scene() == scn: scn.removeItem(item)
+                    lidar_gfx.clear()
+                    
+                    tr=""; cols=['cyan','lime','magenta']
+                    for i,l in enumerate(d['lidars']):
+                        tr += f"\n--- {l['name']} ---\n"
+                        for kidx, loc in enumerate(l['local']):
+                            tr += f"poly {kidx}:\n"; 
+                            for px,py in loc: tr+=f"{px:.3f}, {py:.3f}\n"
+
+                        if (mode.startswith("Lidar:") and mode == f"Lidar: {l['name']}"):
+                             if mode != "Sweep Steps":
+                                 c=cols[i%3]; clip=l['clip']
+                                 if not clip.is_empty:
+                                     cs = []
+                                     if hasattr(clip, 'geoms'): cs = list(clip.geoms)
+                                     elif not clip.is_empty: cs = [clip]
+                                     for p in cs:
+                                         if p.geom_type == 'Polygon' and hasattr(p, 'exterior'):
+                                             v=tf_pts(p.exterior.coords)
+                                             pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor(c))); pi.setOpacity(0.5); pi.setZValue(-10); scn.addItem(pi)
+                                             lidar_gfx.append(pi)
+                    
+                    if 'dist_d' in d: tr = f"Safety Dist (D): {d['dist_d']:.3f} m\n" + tr
+                    txt.setText(tr)
                 
                 # Steps
                 if 'steps' in d and mode == "Sweep Steps":
                     for s in d['steps']:
-                        v=[QPointF(x*SCALE,-y*SCALE) for x,y in s.exterior.coords]
+                        v=tf_pts(s.exterior.coords)
                         pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("orange"))); pi.setOpacity(0.05); pi.setZValue(-10); scn.addItem(pi)
 
                 # Field
@@ -858,12 +961,12 @@ class ResultsTab(QWidget):
                          ip = d['ignored_poly']
                          geoms = ip.geoms if hasattr(ip, 'geoms') else [ip]
                          for p in geoms:
-                             v=[QPointF(x*SCALE,-y*SCALE) for x,y in p.exterior.coords]
+                             v=tf_pts(p.exterior.coords)
                              pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#505050"))); pi.setOpacity(0.5); pi.setPen(QPen(Qt.PenStyle.NoPen)); pi.setZValue(-15); scn.addItem(pi)
 
                      poly_list = list(d['global'].geoms) if d['global'].geom_type=='MultiPolygon' else [d['global']]
                      for i, p in enumerate(poly_list):
-                         v=[QPointF(x*SCALE,-y*SCALE) for x,y in p.exterior.coords]
+                         v=tf_pts(p.exterior.coords)
                          pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#FFD700"))); pi.setOpacity(0.4); pi.setZValue(-10); scn.addItem(pi)
                          
                          if chk.isChecked():
@@ -883,9 +986,12 @@ class ResultsTab(QWidget):
                                          if not c.is_empty:
                                              co, si = np.cos(-s_rot), np.sin(-s_rot)
                                              R = np.array([[co, -si], [si, co]])
-                                             gs = c.geoms if c.geom_type == 'MultiPolygon' else [c]
+                                             gs = []
+                                             if hasattr(c, 'geoms'): gs = list(c.geoms)
+                                             elif not c.is_empty: gs = [c]
                                              for g in gs:
-                                                 loc.append((np.array(g.exterior.coords) - np.array(l['origin'])) @ R.T)
+                                                 if g.geom_type == 'Polygon' and hasattr(g, 'exterior'):
+                                                     loc.append((np.array(g.exterior.coords) - np.array(l['origin'])) @ R.T)
                                          l['local'] = loc
 
                                  if pos is None:
@@ -896,7 +1002,7 @@ class ResultsTab(QWidget):
                                          if len(poly_list) > 1: d['global'] = MultiPolygon(poly_list)
                                          else: d['global'] = poly_list[0]
                                          upd_lidars()
-                                         on_sel()
+                                         QTimer.singleShot(150, lambda: on_sel(row))
                                      return
                                  wx, wy = pos.x()/SCALE, -pos.y()/SCALE
                                  if v_idx < len(coords):
@@ -908,16 +1014,7 @@ class ResultsTab(QWidget):
                                      else: d['global'] = poly_list[0]
                                      
                                      upd_lidars()
-                                     
-                                     # Update Text
-                                     tr=""; cols=['cyan','lime','magenta']
-                                     for i_l,l in enumerate(d['lidars']):
-                                         tr += f"\n--- {l['name']} ---\n"
-                                         for kidx, loc in enumerate(l['local']):
-                                             tr += f"poly {kidx}:\n"; 
-                                             for px,py in loc: tr+=f"{px:.3f}, {py:.3f}\n"
-                                     if 'dist_d' in d: tr = f"Safety Dist (D): {d['dist_d']:.3f} m\n" + tr
-                                     txt.setText(tr)
+                                     draw_dynamic_lidars()
                              
                              for k in range(len(v)-1):
                                  scn.addItem(EditHandle(v[k].x(), v[k].y(), pi, k, cb))
@@ -926,48 +1023,31 @@ class ResultsTab(QWidget):
                      if 'traj' in d and len(d['traj']) > 0:
                          path = QPainterPath()
                          t_pts = d['traj']
-                         path.moveTo(t_pts[0][0]*SCALE, -t_pts[0][1]*SCALE)
-                         for px, py, _ in t_pts[1:]: path.lineTo(px*SCALE, -py*SCALE)
+                         tf = tf_pts([p[:2] for p in t_pts])
+                         path.moveTo(tf[0]); [path.lineTo(p) for p in tf[1:]]
                          
                          pg_path = QGraphicsPathItem(path); pg_path.setPen(QPen(QColor("cyan"), 2, Qt.PenStyle.DashLine)); pg_path.setZValue(15); scn.addItem(pg_path)
                          
-                         last = t_pts[-1]
-                         dot = scn.addEllipse(last[0]*SCALE-4, -last[1]*SCALE-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("blue"))); dot.setZValue(16)
+                         last = tf[-1]
+                         dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("blue"))); dot.setZValue(16)
                      
                      if 'front_traj' in d and len(d['front_traj']) > 0:
                          path = QPainterPath()
                          t_pts = d['front_traj']
-                         path.moveTo(t_pts[0][0]*SCALE, -t_pts[0][1]*SCALE)
-                         for px, py in t_pts[1:]: path.lineTo(px*SCALE, -py*SCALE)
+                         tf = tf_pts(t_pts)
+                         path.moveTo(tf[0]); [path.lineTo(p) for p in tf[1:]]
                          pg_path = QGraphicsPathItem(path); pg_path.setPen(QPen(QColor("lime"), 2, Qt.PenStyle.DashLine)); pg_path.setZValue(15); scn.addItem(pg_path)
-                         last = t_pts[-1]
-                         dot = scn.addEllipse(last[0]*SCALE-4, -last[1]*SCALE-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("lime"))); dot.setZValue(16)
+                         last = tf[-1]
+                         dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("lime"))); dot.setZValue(16)
 
                 # Lidars
-                tr=""; cols=['cyan','lime','magenta']
                 for i,l in enumerate(d['lidars']):
                     # Marker (Always)
-                    el=scn.addEllipse(l['origin'][0]*SCALE-5, -l['origin'][1]*SCALE-5, 10,10, QPen(QColor("white")), QBrush(QColor("white")))
+                    pt=tf_pts([l['origin']])[0]
+                    el=scn.addEllipse(pt.x()-5, pt.y()-5, 10,10, QPen(QColor("white")), QBrush(QColor("white")))
                     el.setZValue(5)
-                    
-                    tr += f"\n--- {l['name']} ---\n"
-                    for kidx, loc in enumerate(l['local']):
-                        tr += f"poly {kidx}:\n"; 
-                        for px,py in loc: tr+=f"{px:.3f}, {py:.3f}\n"
-
-                    if mode == "Composite": continue
-                    if mode == "Sweep Steps": continue
-                    if mode.startswith("Lidar:") and mode != f"Lidar: {l['name']}": continue
-                    
-                    c=cols[i%3]; clip=l['clip']
-                    if not clip.is_empty:
-                        cs=clip.geoms if clip.geom_type=='MultiPolygon' else [clip]
-                        for p in cs:
-                             v=[QPointF(x*SCALE,-y*SCALE) for x,y in p.exterior.coords]
-                             pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor(c))); pi.setOpacity(0.5); pi.setZValue(-10); scn.addItem(pi)
                 
-                if 'dist_d' in d: tr = f"Safety Dist (D): {d['dist_d']:.3f} m\n" + tr
-                txt.setText(tr)
+                draw_dynamic_lidars()
                 
                 # Load
                 if d.get('load_poly'):
@@ -976,10 +1056,10 @@ class ResultsTab(QWidget):
                     geoms = lp.geoms if hasattr(lp, 'geoms') else [lp]
                     for g in geoms:
                         if g.geom_type == 'Polygon':
-                            v=[QPointF(x*SCALE,-y*SCALE) for x,y in g.exterior.coords]
+                            v=tf_pts(g.exterior.coords)
                             pg=QGraphicsPolygonItem(QPolygonF(v)); pg.setBrush(QBrush(QColor(c))); pg.setOpacity(0.3); pg.setPen(QPen(QColor(c), 2)); pg.setZValue(20); scn.addItem(pg)
                         elif g.geom_type in ['LineString', 'LinearRing']:
-                            path = QPainterPath(); pts=[QPointF(x*SCALE,-y*SCALE) for x,y in g.coords]
+                            path = QPainterPath(); pts=tf_pts(g.coords)
                             path.moveTo(pts[0]); [path.lineTo(p) for p in pts[1:]]
                             pg=QGraphicsPathItem(path); pg.setPen(QPen(QColor(c), 2)); pg.setZValue(20); scn.addItem(pg)
 
@@ -989,12 +1069,18 @@ class ResultsTab(QWidget):
                     geoms = bp.geoms if hasattr(bp, 'geoms') else [bp]
                     for g in geoms:
                         if g.geom_type == 'Polygon':
-                            v=[QPointF(x*SCALE,-y*SCALE) for x,y in g.exterior.coords]
+                            v=tf_pts(g.exterior.coords)
                             pg=QGraphicsPolygonItem(QPolygonF(v)); pg.setPen(QPen(QColor("white"),2,Qt.PenStyle.DotLine)); pg.setZValue(10); scn.addItem(pg)
                         elif g.geom_type in ['LineString', 'LinearRing']:
-                            path = QPainterPath(); pts=[QPointF(x*SCALE,-y*SCALE) for x,y in g.coords]
+                            path = QPainterPath(); pts=tf_pts(g.coords)
                             path.moveTo(pts[0]); [path.lineTo(p) for p in pts[1:]]
                             pg=QGraphicsPathItem(path); pg.setPen(QPen(QColor("white"),2,Qt.PenStyle.DotLine)); pg.setZValue(10); scn.addItem(pg)
+                
+                if wrt_lidar:
+                    bp=tf_pts([(0,0)])[0]; bx,by=bp.x(),bp.y()
+                    p1=QGraphicsLineItem(bx,by,bx+30,by); p1.setPen(QPen(QColor("#D32F2F"),2)); scn.addItem(p1)
+                    p2=QGraphicsLineItem(bx,by,bx,by-30); p2.setPen(QPen(QColor("#388E3C"),2)); scn.addItem(p2)
+                    txt_b=QGraphicsTextItem("base_link"); txt_b.setFont(QFont("Arial", 6)); txt_b.setDefaultTextColor(QColor("white")); txt_b.setPos(bx-20,by); scn.addItem(txt_b)
             
             ls.currentRowChanged.connect(on_sel)
             cmb.currentIndexChanged.connect(lambda: on_sel())
@@ -1061,7 +1147,7 @@ class HelpTab(QWidget):
 # =====================================================================
 class App(QMainWindow):
     def __init__(self):
-        super().__init__(); self.resize(1400,900); self.setWindowTitle("Safety Studio V1.0")
+        super().__init__(); self.resize(1400,900); self.setWindowTitle("Safety Studio V" + VERSION)
         self.t=QTabWidget(); self.ed=EditorTab(self); self.gn=GenTab(self); self.rs=ResultsTab(); self.hl=HelpTab()
         self.t.addTab(self.ed,"Editor"); self.t.addTab(self.gn,"Gen"); self.t.addTab(self.rs,"Result"); self.t.addTab(self.hl,"Help")
         self.setCentralWidget(self.t)
@@ -1069,14 +1155,6 @@ class App(QMainWindow):
     def run_sim(self):
         FootPrint=self.ed.polys['FootPrint']; sens=self.ed.get_s(); gn=self.gn
         if not FootPrint: QMessageBox.critical(self,"E","No FootPrint"); return
-        
-        try: P={
-            'tr':float(gn.ptr.text()), 'ac':float(gn.pac.text()), 'ds':float(gn.pds.text()),
-            'pad':float(gn.ppd.text()), 'smooth':float(gn.psm.text()), 
-            'lat_scale':float(gn.lat_s.text()),
-            'patch_notch': gn.c_notch.isChecked()
-        }
-        except: return
         
         ld_p={'NoLoad':None}
         if self.ed.polys['L1']: ld_p['Load1']=self.ed.polys['L1']
@@ -1087,6 +1165,20 @@ class App(QMainWindow):
             try:
                 ltype=tbl.item(r,1).text(); v=float(tbl.item(r,2).text()); w=float(tbl.item(r,3).text())
                 lp = ld_p.get(ltype, None)
+                
+                if ltype not in gn.phy_inputs: continue
+                
+                use_k = ltype
+                if ltype != 'NoLoad' and 'en_chk' in gn.phy_inputs[ltype] and not gn.phy_inputs[ltype]['en_chk'].isChecked():
+                    use_k = 'NoLoad'
+                
+                pi = gn.phy_inputs[use_k]
+                P={
+                    'tr':float(pi['tr'].text()), 'ac':float(pi['ac'].text()), 'ds':float(pi['ds'].text()),
+                    'pad':float(pi['pad'].text()), 'smooth':float(pi['sm'].text()), 
+                    'lat_scale':float(pi['ls'].text()),
+                    'patch_notch': gn.c_notch.isChecked()
+                }
                 
                 if ltype == 'Load1': P['shadow'] = gn.sh_l1.isChecked()
                 elif ltype == 'Load2': P['shadow'] = gn.sh_l2.isChecked()
