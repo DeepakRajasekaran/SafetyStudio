@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.1.0 beta"
+VERSION = "1.1.1 beta"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -927,10 +927,19 @@ class ResultsTab(QWidget):
                     
                     tr=""; cols=['cyan','lime','magenta']
                     for i,l in enumerate(d['lidars']):
+                        if wrt_lidar and l['name'] != ln: continue
                         tr += f"\n--- {l['name']} ---\n"
-                        for kidx, loc in enumerate(l['local']):
-                            tr += f"poly {kidx}:\n"; 
-                            for px,py in loc: tr+=f"{px:.3f}, {py:.3f}\n"
+                        
+                        geoms = []
+                        if not l['clip'].is_empty:
+                            geoms = list(l['clip'].geoms) if hasattr(l['clip'], 'geoms') else [l['clip']]
+                        
+                        for kidx, g in enumerate(geoms):
+                            if g.geom_type == 'Polygon':
+                                pts = np.array(g.exterior.coords)
+                                tf_a = (pts - tf_off) @ R.T
+                                tr += f"poly {kidx}:\n"
+                                for px,py in tf_a: tr+=f"{px:.3f}, {py:.3f}\n"
 
                         if (mode.startswith("Lidar:") and mode == f"Lidar: {l['name']}"):
                              if mode != "Sweep Steps":

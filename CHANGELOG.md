@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1-beta]
+
+### Fixed
+
+- Refactored Results tab numeric output to match visualization transforms exactly.
+- Filtered numeric output to show only the active sensor when "Show Wrt Lidar" is enabled.
+
 ## [1.1.0-beta]
 
 ### Added
@@ -22,7 +29,7 @@ All notable changes to this project will be documented in this file.
 ### Todo
 
 - Linear field should be a trapezoid.
-- Consider the lidar as mask. (i.e. right shouldn't interfere with the left if placed parallel and vise versa) 
+- Consider the lidar as mask. (i.e. right shouldn't interfere with the left if placed parallel and vise versa)
 - export as nanoscan format (export in results)
 - introduce field sets and fields
 - monitoring_case table generation and export as nanoscan format
