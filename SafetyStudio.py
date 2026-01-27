@@ -391,7 +391,7 @@ class SafetyMath:
                 # Shadowing (Only for individual lidar fields)
                 shadow = None
                 clip_indiv = clip
-                if load_poly:
+                if load_poly and P.get('shadow', True):
                     shadow = SafetyMath.get_shadow_wedge(og, load_poly, max_r*1.1)
                     if shadow: clip_indiv = clip.difference(shadow)
 
@@ -576,8 +576,11 @@ class EditorTab(QWidget):
         rv.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
         rv.addWidget(QLabel("<b>Geometry Loader</b>"))
         for k in ['FootPrint','L1','L2']:
-            b=QPushButton(f"Load {k} DXF"); b.clicked.connect(lambda _,x=k: self.load_sh(x))
-            b.setStyleSheet("background:#444;color:white;padding:4px"); rv.addWidget(b)
+            hb=QHBoxLayout()
+            b=QPushButton(f"Load {k}"); b.clicked.connect(lambda _,x=k: self.load_sh(x))
+            b.setStyleSheet("background:#444;color:white;padding:4px"); hb.addWidget(b)
+            c=QPushButton("Clr"); c.setFixedWidth(40); c.setStyleSheet("background:#B71C1C;color:white;padding:4px"); c.clicked.connect(lambda _,x=k: self.clear_sh(x))
+            hb.addWidget(c); rv.addLayout(hb)
         rv.addStretch(); l.addWidget(r)
         
         self.polys={'FootPrint':[],'L1':[],'L2':[]}
@@ -592,6 +595,7 @@ class EditorTab(QWidget):
                 self.polys[k]=p; self.render()
             except Exception as e:
                 QMessageBox.critical(self, "Import Failed", f"Could not load DXF file:\n{f}\n\nError Details:\n{str(e)}\n\nEnsure the file contains valid geometry (Lines, Polylines, Arcs).")
+    def clear_sh(self, k): self.polys[k]=[]; self.render()
     def render(self): self.scn.update_polys(self.polys['FootPrint'], self.polys['L1'], self.polys['L2'])
     def tog(self,k,v): self.scn.vflags[k]=v; self.render()
     def upl(self): 
@@ -616,7 +620,7 @@ class GenTab(QWidget):
         super().__init__(); self.main=main; l=QHBoxLayout(self)
         
         # Inputs
-        f=QFrame(); f.setFixedWidth(320); fl=QVBoxLayout(f)
+        f=QFrame(); f.setFixedWidth(500); fl=QVBoxLayout(f)
         gp=QGroupBox("Physics Config"); gl=QGridLayout(gp)
         
         eq=QLabel("D = v*Tr + v^2/2a + Ds"); eq.setStyleSheet("color:cyan; font-weight:bold; margin-bottom:5px")
@@ -630,23 +634,32 @@ class GenTab(QWidget):
         fl.addWidget(gp)
         
         gi=QGroupBox("Plan Auto-Gen"); gl2=QGridLayout(gi)
-        self.vm=self.mk2(gl2,"MaxVel","1.2",0); self.tm=self.mk2(gl2,"MaxRot","30.0",1) # W/Deg input
-        self.cnt=self.mk2(gl2,"Count","18",2)
+        
+        gl2.addWidget(QLabel("Type"),0,0); gl2.addWidget(QLabel("Count"),0,1)
+        gl2.addWidget(QLabel("Max V"),0,2); gl2.addWidget(QLabel("Max W"),0,3); gl2.addWidget(QLabel("Shadow"),0,4)
+        
+        self.chk_nl=QCheckBox("NoLoad"); self.chk_nl.setChecked(True)
+        self.cnt_nl=QLineEdit("6"); self.v_nl=QLineEdit("1.2"); self.w_nl=QLineEdit("30.0")
+        gl2.addWidget(self.chk_nl,1,0); gl2.addWidget(self.cnt_nl,1,1); gl2.addWidget(self.v_nl,1,2); gl2.addWidget(self.w_nl,1,3)
+        
+        self.chk_l1=QCheckBox("Load1"); self.chk_l1.setChecked(False)
+        self.cnt_l1=QLineEdit("6"); self.v_l1=QLineEdit("1.0"); self.w_l1=QLineEdit("20.0"); self.sh_l1=QCheckBox(); self.sh_l1.setChecked(True)
+        gl2.addWidget(self.chk_l1,2,0); gl2.addWidget(self.cnt_l1,2,1); gl2.addWidget(self.v_l1,2,2); gl2.addWidget(self.w_l1,2,3); gl2.addWidget(self.sh_l1,2,4)
+        
+        self.chk_l2=QCheckBox("Load2"); self.chk_l2.setChecked(False)
+        self.cnt_l2=QLineEdit("6"); self.v_l2=QLineEdit("0.8"); self.w_l2=QLineEdit("15.0"); self.sh_l2=QCheckBox(); self.sh_l2.setChecked(True)
+        gl2.addWidget(self.chk_l2,3,0); gl2.addWidget(self.cnt_l2,3,1); gl2.addWidget(self.v_l2,3,2); gl2.addWidget(self.w_l2,3,3); gl2.addWidget(self.sh_l2,3,4)
         
         self.c_fwd=QCheckBox("Fwd Linear"); self.c_fwd.setChecked(True)
         self.c_ip=QCheckBox("In-Place Spin"); self.c_ip.setChecked(True)
         self.c_turn=QCheckBox("Curve Turn"); self.c_turn.setChecked(True)
         self.c_notch=QCheckBox("Patch Notches"); self.c_notch.setChecked(True)
-        gl2.addWidget(self.c_fwd,3,0); gl2.addWidget(self.c_ip,3,1); gl2.addWidget(self.c_turn,4,0)
-        gl2.addWidget(self.c_notch,4,1)
         
-        # Load Selection for generation
-        self.l_nl=QCheckBox("NoL"); self.l_nl.setChecked(True); self.l_L1=QCheckBox("L1"); self.l_L2=QCheckBox("L2")
-        box=QHBoxLayout(); box.addWidget(self.l_nl); box.addWidget(self.l_L1); box.addWidget(self.l_L2)
-        gl2.addLayout(box,5,0,1,2)
-        
+        hb=QHBoxLayout(); hb.addWidget(self.c_fwd); hb.addWidget(self.c_ip); hb.addWidget(self.c_turn); hb.addWidget(self.c_notch)
+        gl2.addLayout(hb,4,0,1,5)
+
         bg=QPushButton("Populate Table"); bg.clicked.connect(self.pop)
-        gl2.addWidget(bg,6,0,1,2); fl.addWidget(gi)
+        gl2.addWidget(bg,5,0,1,5); fl.addWidget(gi)
         
         gc=QHBoxLayout(); be=QPushButton("Export Config"); bi=QPushButton("Import Config")
         be.clicked.connect(self.exp_conf); bi.clicked.connect(self.imp_conf)
@@ -662,49 +675,43 @@ class GenTab(QWidget):
         l.addWidget(self.tbl)
     
     def mk(self,l,t,v,r): l.addWidget(QLabel(t),r,0); e=QLineEdit(str(v)); l.addWidget(e,r,1); return e
-    def mk2(self,l,t,v,r): l.addWidget(QLabel(t),r,0); e=QLineEdit(str(v)); l.addWidget(e,r,1); return e
     
     def pop(self):
         try:
-            cnt=int(self.cnt.text()); mv=float(self.vm.text()); mw=float(self.tm.text())
-            lds = []
-            if self.l_nl.isChecked(): lds.append("NoLoad")
-            if self.l_L1.isChecked(): lds.append("Load1")
-            if self.l_L2.isChecked(): lds.append("Load2")
-            if not lds: return
-            
-            # Logic: Split cnt among Loads, then among Modes
             self.tbl.setRowCount(0); idx=1
+            
+            cfgs = []
+            if self.chk_nl.isChecked(): cfgs.append(('NoLoad', int(self.cnt_nl.text()), float(self.v_nl.text()), float(self.w_nl.text())))
+            if self.chk_l1.isChecked(): cfgs.append(('Load1', int(self.cnt_l1.text()), float(self.v_l1.text()), float(self.w_l1.text())))
+            if self.chk_l2.isChecked(): cfgs.append(('Load2', int(self.cnt_l2.text()), float(self.v_l2.text()), float(self.w_l2.text())))
             
             use_lin = self.c_fwd.isChecked()
             use_ip = self.c_ip.isChecked()
             use_crv = self.c_turn.isChecked()
-            active_modes = int(use_lin) + int(use_ip) + int(use_crv)
-            if active_modes==0: return
             
-            per_load = cnt // len(lds)
-            
-            for ld in lds:
-                rem = per_load
+            for ld, cnt, mv, mw in cfgs:
+                rem = cnt
                 
                 # In-Place (Velocity 0)
-                if use_ip:
-                     # Add a couple IP cases
-                     self.ar(idx, ld, 0, mw); idx+=1
-                     self.ar(idx, ld, 0, -mw); idx+=1
-                     rem -= 2
+                if use_ip and rem > 0:
+                     self.ar(idx, ld, 0, mw); idx+=1; rem-=1
+                     if rem > 0:
+                        self.ar(idx, ld, 0, -mw); idx+=1; rem-=1
                 
                 if rem <= 0: continue
                 
-                steps = rem // (1 + (2 if use_crv else 0)) # Fwd + Left + Right
+                modes = (1 if use_lin else 0) + (2 if use_crv else 0)
+                if modes == 0: continue
+                
+                steps = math.ceil(rem / modes)
                 v_step = mv / steps if steps > 0 else mv
                 
                 curr_v = v_step
                 for _ in range(steps):
-                    if use_lin: self.ar(idx, ld, curr_v, 0); idx+=1
+                    if use_lin and rem > 0: self.ar(idx, ld, curr_v, 0); idx+=1; rem-=1
                     if use_crv:
-                        self.ar(idx, ld, curr_v, mw); idx+=1
-                        self.ar(idx, ld, curr_v, -mw); idx+=1
+                        if rem > 0: self.ar(idx, ld, curr_v, mw); idx+=1; rem-=1
+                        if rem > 0: self.ar(idx, ld, curr_v, -mw); idx+=1; rem-=1
                     curr_v += v_step
 
         except Exception as e: print(e)
@@ -727,7 +734,12 @@ class GenTab(QWidget):
 
         d={
             'phy':{'tr':self.ptr.text(),'ac':self.pac.text(),'ds':self.pds.text(),'pad':self.ppd.text(),'sm':self.psm.text(),'ls':self.lat_s.text()},
-            'bat':{'mv':self.vm.text(),'mw':self.tm.text(),'cnt':self.cnt.text(),'fwd':self.c_fwd.isChecked(),'ip':self.c_ip.isChecked(),'tn':self.c_turn.isChecked(),'pn':self.c_notch.isChecked(),'nl':self.l_nl.isChecked(),'L1':self.l_L1.isChecked(),'L2':self.l_L2.isChecked()},
+            'bat':{
+                'nl':{'en':self.chk_nl.isChecked(),'c':self.cnt_nl.text(),'v':self.v_nl.text(),'w':self.w_nl.text()},
+                'l1':{'en':self.chk_l1.isChecked(),'c':self.cnt_l1.text(),'v':self.v_l1.text(),'w':self.w_l1.text(),'sh':self.sh_l1.isChecked()},
+                'l2':{'en':self.chk_l2.isChecked(),'c':self.cnt_l2.text(),'v':self.v_l2.text(),'w':self.w_l2.text(),'sh':self.sh_l2.isChecked()},
+                'fwd':self.c_fwd.isChecked(),'ip':self.c_ip.isChecked(),'tn':self.c_turn.isChecked(),'pn':self.c_notch.isChecked()
+            },
             'sns':self.main.ed.get_s(),
             'geo':geo_data
         }
@@ -748,16 +760,25 @@ class GenTab(QWidget):
                 if 'sm' in p: self.psm.setText(p['sm'])
                 if 'ls' in p: self.lat_s.setText(p['ls'])
                 b=d.get('bat',{})
-                if 'mv' in b: self.vm.setText(b['mv'])
-                if 'mw' in b: self.tm.setText(b['mw'])
-                if 'cnt' in b: self.cnt.setText(b['cnt'])
+                if 'nl' in b:
+                    v=b['nl']
+                    if isinstance(v, dict): self.chk_nl.setChecked(v.get('en',True)); self.cnt_nl.setText(str(v.get('c','6'))); self.v_nl.setText(str(v.get('v','1.2'))); self.w_nl.setText(str(v.get('w','30.0')))
+                    else: self.chk_nl.setChecked(bool(v))
+                
+                v=b.get('l1', b.get('L1'))
+                if v is not None:
+                    if isinstance(v, dict): self.chk_l1.setChecked(v.get('en',False)); self.cnt_l1.setText(str(v.get('c','6'))); self.v_l1.setText(str(v.get('v','1.0'))); self.w_l1.setText(str(v.get('w','20.0'))); self.sh_l1.setChecked(v.get('sh',True))
+                    else: self.chk_l1.setChecked(bool(v))
+                
+                v=b.get('l2', b.get('L2'))
+                if v is not None:
+                    if isinstance(v, dict): self.chk_l2.setChecked(v.get('en',False)); self.cnt_l2.setText(str(v.get('c','6'))); self.v_l2.setText(str(v.get('v','0.8'))); self.w_l2.setText(str(v.get('w','15.0'))); self.sh_l2.setChecked(v.get('sh',True))
+                    else: self.chk_l2.setChecked(bool(v))
+                
                 if 'fwd' in b: self.c_fwd.setChecked(b['fwd'])
                 if 'ip' in b: self.c_ip.setChecked(b['ip'])
                 if 'tn' in b: self.c_turn.setChecked(b['tn'])
                 if 'pn' in b: self.c_notch.setChecked(b['pn'])
-                if 'nl' in b: self.l_nl.setChecked(b['nl'])
-                if 'L1' in b: self.l_L1.setChecked(b['L1'])
-                if 'L2' in b: self.l_L2.setChecked(b['L2'])
                 s=d.get('sns',[])
                 if s: self.main.ed.sens=s; self.main.ed.upl()
                 g=d.get('geo',{})
@@ -997,9 +1018,9 @@ class HelpTab(QWidget):
         
         <h3 style='color:#2196F3'>1. Editor Tab</h3>
         <ul>
-            <li><b>Footprint:</b> Import a DXF file defining the robot's base shape.</li>
+            <li><b>Footprint:</b> Import a DXF file defining the robot's base shape. Use 'Clr' to remove.</li>
             <li><b>Sensors:</b> Configure LiDAR placement (X,Y), Mounting Angle, FOV, and Range.</li>
-            <li><b>Loads:</b> Load additional DXF shapes for L1/L2 configurations (e.g., pallets).</li>
+            <li><b>Loads:</b> Load additional DXF shapes for L1/L2 configurations (e.g., pallets). Use 'Clr' to remove.</li>
         </ul>
         <p><i><b>DXF Assumption:</b> The DXF origin (0,0) is considered as the <b>base_link</b>. Design DXF files accordingly (both footprint and loads should be defined w.r.t base link).</i></p>
         
@@ -1012,7 +1033,14 @@ class HelpTab(QWidget):
                     <li><b>Ds:</b> Safety buffer distance (meters).</li>
                 </ul>
             </li>
-            <li><b>Plan Auto-Gen:</b> Automatically create test cases based on Max Velocity and Max Rotation.</li>
+            <li><b>Plan Auto-Gen:</b>
+                <ul>
+                    <li><b>Type:</b> Enable/Disable generation for NoLoad, Load1, or Load2.</li>
+                    <li><b>Count:</b> Number of cases to generate per load type.</li>
+                    <li><b>Max V/W:</b> Maximum Linear (m/s) and Angular (deg/s) velocities for generation.</li>
+                    <li><b>Shadow:</b> Enable shadow casting for Load1/Load2 (prevents fields from going through the load).</li>
+                </ul>
+            </li>
             <li><b>Motion Types:</b> Toggle Linear, In-Place, or Curve Turns.</li>
             <li><b>Patch Notches:</b> Enable post-processing to smooth out artifacts in rotation fields.</li>
             <li><b>Execute Batch:</b> Runs the simulation for all rows in the table.</li>
@@ -1023,6 +1051,7 @@ class HelpTab(QWidget):
             <li><b>View:</b> Inspect the generated Global Safety Field (Yellow).</li>
             <li><b>Sensors:</b> See how the field is clipped per sensor (Cyan/Magenta/Lime).</li>
             <li><b>Check:</b> Verify the safety distance arc (Cyan Dash) matches the field boundary.</li>
+            <li><b>Edit:</b> Enable 'Edit Poly' to manually adjust field vertices.</li>
         </ul>
         """)
         l.addWidget(t)
@@ -1058,6 +1087,11 @@ class App(QMainWindow):
             try:
                 ltype=tbl.item(r,1).text(); v=float(tbl.item(r,2).text()); w=float(tbl.item(r,3).text())
                 lp = ld_p.get(ltype, None)
+                
+                if ltype == 'Load1': P['shadow'] = gn.sh_l1.isChecked()
+                elif ltype == 'Load2': P['shadow'] = gn.sh_l2.isChecked()
+                else: P['shadow'] = False
+                
                 w_in = np.radians(w) # Input is Deg
                 gf, lid, trj, stp, val_d, ftrj, ign = SafetyMath.calc_case(FootPrint, lp, sens, v, w_in, P)
                 if gf is None: continue
