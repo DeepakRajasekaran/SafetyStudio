@@ -280,7 +280,7 @@ class SafetyMath:
                 raw_footprint_poly = scale(raw_footprint_poly, xfact=lat_scale, yfact=1.0, origin=(0,0))
             
             # Define True Geometry (Unpadded) for Dynamics
-            if load_poly:
+            if load_poly and P.get('include_load', True):
                 # Union with load (unpadded) to get full rigid body
                 unpadded_geom = unary_union([raw_footprint_poly, load_poly]).convex_hull
             else:
@@ -638,8 +638,8 @@ class EditorTab(QWidget):
             'phy':phy_out,
             'bat':{
                 'nl':{'en':True,'c':gn.cnt_nl.text(),'v':gn.v_nl.text(),'w':gn.w_nl.text()},
-                'l1':{'en':gn.chk_l1.isChecked(),'c':gn.cnt_l1.text(),'v':gn.v_l1.text(),'w':gn.w_l1.text(),'sh':gn.sh_l1.isChecked()},
-                'l2':{'en':gn.chk_l2.isChecked(),'c':gn.cnt_l2.text(),'v':gn.v_l2.text(),'w':gn.w_l2.text(),'sh':gn.sh_l2.isChecked()},
+                'l1':{'en':gn.chk_l1.isChecked(),'c':gn.cnt_l1.text(),'v':gn.v_l1.text(),'w':gn.w_l1.text(),'sh':gn.sh_l1.isChecked(),'inc':gn.inc_l1.isChecked()},
+                'l2':{'en':gn.chk_l2.isChecked(),'c':gn.cnt_l2.text(),'v':gn.v_l2.text(),'w':gn.w_l2.text(),'sh':gn.sh_l2.isChecked(),'inc':gn.inc_l2.isChecked()},
                 'fwd':gn.c_fwd.isChecked(),'ip':gn.c_ip.isChecked(),'tn':gn.c_turn.isChecked(),'pn':gn.c_notch.isChecked()
             },
             'sns':self.get_s(),
@@ -687,12 +687,12 @@ class EditorTab(QWidget):
                 
                 v=b.get('l1', b.get('L1'))
                 if v is not None:
-                    if isinstance(v, dict): gn.chk_l1.setChecked(v.get('en',False)); gn.cnt_l1.setText(str(v.get('c','6'))); gn.v_l1.setText(str(v.get('v','1.0'))); gn.w_l1.setText(str(v.get('w','20.0'))); gn.sh_l1.setChecked(v.get('sh',True))
+                    if isinstance(v, dict): gn.chk_l1.setChecked(v.get('en',False)); gn.cnt_l1.setText(str(v.get('c','6'))); gn.v_l1.setText(str(v.get('v','1.0'))); gn.w_l1.setText(str(v.get('w','20.0'))); gn.sh_l1.setChecked(v.get('sh',True)); gn.inc_l1.setChecked(v.get('inc',True))
                     else: gn.chk_l1.setChecked(bool(v))
                 
                 v=b.get('l2', b.get('L2'))
                 if v is not None:
-                    if isinstance(v, dict): gn.chk_l2.setChecked(v.get('en',False)); gn.cnt_l2.setText(str(v.get('c','6'))); gn.v_l2.setText(str(v.get('v','0.8'))); gn.w_l2.setText(str(v.get('w','15.0'))); gn.sh_l2.setChecked(v.get('sh',True))
+                    if isinstance(v, dict): gn.chk_l2.setChecked(v.get('en',False)); gn.cnt_l2.setText(str(v.get('c','6'))); gn.v_l2.setText(str(v.get('v','0.8'))); gn.w_l2.setText(str(v.get('w','15.0'))); gn.sh_l2.setChecked(v.get('sh',True)); gn.inc_l2.setChecked(v.get('inc',True))
                     else: gn.chk_l2.setChecked(bool(v))
                 
                 if 'fwd' in b: gn.c_fwd.setChecked(b['fwd'])
@@ -755,19 +755,19 @@ class GenTab(QWidget):
         gi=QGroupBox("Plan Auto-Gen"); gl2=QGridLayout(gi)
         
         gl2.addWidget(QLabel("Type"),0,0); gl2.addWidget(QLabel("Count"),0,1)
-        gl2.addWidget(QLabel("Max V"),0,2); gl2.addWidget(QLabel("Max W"),0,3); gl2.addWidget(QLabel("Shadow"),0,4)
+        gl2.addWidget(QLabel("Max V"),0,2); gl2.addWidget(QLabel("Max W"),0,3); gl2.addWidget(QLabel("Shadow"),0,4); gl2.addWidget(QLabel("Inc Shape"),0,5)
         
         self.lbl_nl=QLabel("NoLoad"); self.lbl_nl.setStyleSheet("font-weight:bold")
         self.cnt_nl=QLineEdit("6"); self.v_nl=QLineEdit("1.2"); self.w_nl=QLineEdit("30.0")
         gl2.addWidget(self.lbl_nl,1,0); gl2.addWidget(self.cnt_nl,1,1); gl2.addWidget(self.v_nl,1,2); gl2.addWidget(self.w_nl,1,3)
         
         self.chk_l1=QCheckBox("Load1"); self.chk_l1.setChecked(False)
-        self.cnt_l1=QLineEdit("6"); self.v_l1=QLineEdit("1.0"); self.w_l1=QLineEdit("20.0"); self.sh_l1=QCheckBox(); self.sh_l1.setChecked(True)
-        gl2.addWidget(self.chk_l1,2,0); gl2.addWidget(self.cnt_l1,2,1); gl2.addWidget(self.v_l1,2,2); gl2.addWidget(self.w_l1,2,3); gl2.addWidget(self.sh_l1,2,4)
+        self.cnt_l1=QLineEdit("6"); self.v_l1=QLineEdit("1.0"); self.w_l1=QLineEdit("20.0"); self.sh_l1=QCheckBox(); self.sh_l1.setChecked(True); self.inc_l1=QCheckBox(); self.inc_l1.setChecked(True)
+        gl2.addWidget(self.chk_l1,2,0); gl2.addWidget(self.cnt_l1,2,1); gl2.addWidget(self.v_l1,2,2); gl2.addWidget(self.w_l1,2,3); gl2.addWidget(self.sh_l1,2,4); gl2.addWidget(self.inc_l1,2,5)
         
         self.chk_l2=QCheckBox("Load2"); self.chk_l2.setChecked(False)
-        self.cnt_l2=QLineEdit("6"); self.v_l2=QLineEdit("0.8"); self.w_l2=QLineEdit("15.0"); self.sh_l2=QCheckBox(); self.sh_l2.setChecked(True)
-        gl2.addWidget(self.chk_l2,3,0); gl2.addWidget(self.cnt_l2,3,1); gl2.addWidget(self.v_l2,3,2); gl2.addWidget(self.w_l2,3,3); gl2.addWidget(self.sh_l2,3,4)
+        self.cnt_l2=QLineEdit("6"); self.v_l2=QLineEdit("0.8"); self.w_l2=QLineEdit("15.0"); self.sh_l2=QCheckBox(); self.sh_l2.setChecked(True); self.inc_l2=QCheckBox(); self.inc_l2.setChecked(True)
+        gl2.addWidget(self.chk_l2,3,0); gl2.addWidget(self.cnt_l2,3,1); gl2.addWidget(self.v_l2,3,2); gl2.addWidget(self.w_l2,3,3); gl2.addWidget(self.sh_l2,3,4); gl2.addWidget(self.inc_l2,3,5)
         
         self.c_fwd=QCheckBox("Fwd Linear"); self.c_fwd.setChecked(True)
         self.c_ip=QCheckBox("In-Place Spin"); self.c_ip.setChecked(True)
@@ -775,10 +775,10 @@ class GenTab(QWidget):
         self.c_notch=QCheckBox("Patch Notches"); self.c_notch.setChecked(True)
         
         hb=QHBoxLayout(); hb.addWidget(self.c_fwd); hb.addWidget(self.c_ip); hb.addWidget(self.c_turn); hb.addWidget(self.c_notch)
-        gl2.addLayout(hb,4,0,1,5)
+        gl2.addLayout(hb,4,0,1,6)
 
         bg=QPushButton("Populate Table"); bg.clicked.connect(self.pop)
-        gl2.addWidget(bg,5,0,1,5); fl.addWidget(gi)
+        gl2.addWidget(bg,5,0,1,6); fl.addWidget(gi)
         
         xb=QPushButton("EXECUTE BATCH"); xb.setStyleSheet("background:#2E7D32;color:white;font-weight:bold;height:45px")
         xb.clicked.connect(self.exe); fl.addWidget(xb); fl.addStretch(); l.addWidget(f)
@@ -1190,9 +1190,15 @@ class App(QMainWindow):
                     'patch_notch': gn.c_notch.isChecked()
                 }
                 
-                if ltype == 'Load1': P['shadow'] = gn.sh_l1.isChecked()
-                elif ltype == 'Load2': P['shadow'] = gn.sh_l2.isChecked()
-                else: P['shadow'] = False
+                if ltype == 'Load1': 
+                    P['shadow'] = gn.sh_l1.isChecked()
+                    P['include_load'] = gn.inc_l1.isChecked()
+                elif ltype == 'Load2': 
+                    P['shadow'] = gn.sh_l2.isChecked()
+                    P['include_load'] = gn.inc_l2.isChecked()
+                else: 
+                    P['shadow'] = False
+                    P['include_load'] = False
                 
                 w_in = np.radians(w) # Input is Deg
                 gf, lid, trj, stp, val_d, ftrj, ign = SafetyMath.calc_case(FootPrint, lp, sens, v, w_in, P)
