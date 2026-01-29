@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.2.0-beta"
+VERSION = "1.2.1-beta"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -524,7 +524,15 @@ class RulerView(QGraphicsView):
         s = 1.1 if e.angleDelta().y() > 0 else 0.9; self.scale(s,s)
 
 # =====================================================================
-# 3. EDITOR COMPONENTS
+# 3. EDITOR COMPONENTS➜  SafetyConfigTool git:(main) ✗ python3 SafetyStudio.py
+Traceback (most recent call last):
+  File "/home/username/Documents/ANSCER/SafetyConfigTool/SafetyStudio.py", line 1265, in <module>
+    w=App(); w.show(); sys.exit(app.exec())
+  File "/home/username/Documents/ANSCER/SafetyConfigTool/SafetyStudio.py", line 1214, in __init__
+    self.t=QTabWidget(); self.ed=EditorTab(self); self.gn=GenTab(self); self.rs=ResultsTab(); self.hl=HelpTab()
+  File "/home/username/Documents/ANSCER/SafetyConfigTool/SafetyStudio.py", line 833, in __init__
+    xb.clicked.connect(self.exe); fl.addWidget(xb); fl.addStretch(); l.addWidget(f)
+AttributeError: 'QLabel' object has no attribute 'addWidget'
 # =====================================================================
 class EditorScene(BaseGridScene):
     def __init__(self):
@@ -658,10 +666,13 @@ class EditorTab(QWidget):
         d={
             'phy':phy_out,
             'bat':{
-                'nl':{'en':True,'c':gn.cnt_nl.text(),'v':gn.v_nl.text(),'w':gn.w_nl.text()},
-                'l1':{'en':gn.chk_l1.isChecked(),'c':gn.cnt_l1.text(),'v':gn.v_l1.text(),'w':gn.w_l1.text(),'sh':gn.sh_l1.isChecked(),'inc':gn.inc_l1.isChecked()},
-                'l2':{'en':gn.chk_l2.isChecked(),'c':gn.cnt_l2.text(),'v':gn.v_l2.text(),'w':gn.w_l2.text(),'sh':gn.sh_l2.isChecked(),'inc':gn.inc_l2.isChecked()},
-                'fwd':gn.c_fwd.isChecked(),'ip':gn.c_ip.isChecked(),'tn':gn.c_turn.isChecked(),'pn':gn.c_notch.isChecked()
+                k: {
+                    'en': v['en'].isChecked() if v['en'] else True,
+                    'c': v['cnt'].text(), 'v': v['v'].text(), 'w': v['w'].text(),
+                    'sh': v['sh'].isChecked(), 'inc': v['inc'].isChecked(),
+                    'fwd': v['fwd'].isChecked(), 'tn': v['turn'].isChecked(),
+                    'ip': v['ip'].isChecked(), 'pn': v['notch'].isChecked()
+                } for k, v in gn.gen_inputs.items()
             },
             'sns':self.get_s(),
             'geo':geo_data
@@ -701,25 +712,33 @@ class EditorTab(QWidget):
                         if 'ls' in p: inputs['ls'].setText(p['ls'])
 
                 b=d.get('bat',{})
-                if 'nl' in b:
-                    v=b['nl']
-                    if isinstance(v, dict): gn.cnt_nl.setText(str(v.get('c','6'))); gn.v_nl.setText(str(v.get('v','1.2'))); gn.w_nl.setText(str(v.get('w','30.0')))
-                    else: pass
                 
-                v=b.get('l1', b.get('L1'))
-                if v is not None:
-                    if isinstance(v, dict): gn.chk_l1.setChecked(v.get('en',False)); gn.cnt_l1.setText(str(v.get('c','6'))); gn.v_l1.setText(str(v.get('v','1.0'))); gn.w_l1.setText(str(v.get('w','20.0'))); gn.sh_l1.setChecked(v.get('sh',True)); gn.inc_l1.setChecked(v.get('inc',True))
-                    else: gn.chk_l1.setChecked(bool(v))
-                
-                v=b.get('l2', b.get('L2'))
-                if v is not None:
-                    if isinstance(v, dict): gn.chk_l2.setChecked(v.get('en',False)); gn.cnt_l2.setText(str(v.get('c','6'))); gn.v_l2.setText(str(v.get('v','0.8'))); gn.w_l2.setText(str(v.get('w','15.0'))); gn.sh_l2.setChecked(v.get('sh',True)); gn.inc_l2.setChecked(v.get('inc',True))
-                    else: gn.chk_l2.setChecked(bool(v))
-                
-                if 'fwd' in b: gn.c_fwd.setChecked(b['fwd'])
-                if 'ip' in b: gn.c_ip.setChecked(b['ip'])
-                if 'tn' in b: gn.c_turn.setChecked(b['tn'])
-                if 'pn' in b: gn.c_notch.setChecked(b['pn'])
+                # Global fallbacks for legacy format
+                g_fwd = b.get('fwd', True); g_ip = b.get('ip', True)
+                g_tn = b.get('tn', True); g_pn = b.get('pn', True)
+
+                for k in ['NoLoad', 'Load1', 'Load2']:
+                    # Map legacy keys
+                    src = None
+                    if k == 'NoLoad': src = b.get('nl', b.get('NoLoad'))
+                    elif k == 'Load1': src = b.get('l1', b.get('Load1'))
+                    elif k == 'Load2': src = b.get('l2', b.get('Load2'))
+                    
+                    tgt = gn.gen_inputs[k]
+                    if src:
+                        if isinstance(src, dict):
+                            if 'c' in src: tgt['cnt'].setText(str(src['c']))
+                            if 'v' in src: tgt['v'].setText(str(src['v']))
+                            if 'w' in src: tgt['w'].setText(str(src['w']))
+                            if 'sh' in src: tgt['sh'].setChecked(src['sh'])
+                            if 'inc' in src: tgt['inc'].setChecked(src['inc'])
+                            if 'en' in src and tgt['en']: tgt['en'].setChecked(src['en'])
+                            tgt['fwd'].setChecked(src.get('fwd', g_fwd))
+                            tgt['turn'].setChecked(src.get('tn', g_tn))
+                            tgt['ip'].setChecked(src.get('ip', g_ip))
+                            tgt['notch'].setChecked(src.get('pn', g_pn))
+                        elif tgt['en']: tgt['en'].setChecked(bool(src))
+
                 s=d.get('sns',[])
                 if s: self.sens=s; self.upl()
                 g=d.get('geo',{})
@@ -774,32 +793,49 @@ class GenTab(QWidget):
         fl.addWidget(gp)
         
         gi=QGroupBox("Plan Auto-Gen"); gl2=QGridLayout(gi)
+        self.gen_inputs = {}
+        cols = ['NoLoad', 'Load1', 'Load2']
         
-        gl2.addWidget(QLabel("Type"),0,0); gl2.addWidget(QLabel("Count"),0,1)
-        gl2.addWidget(QLabel("Max V"),0,2); gl2.addWidget(QLabel("Max W"),0,3); gl2.addWidget(QLabel("Shadow"),0,4); gl2.addWidget(QLabel("Inc Shape"),0,5)
+        # Headers
+        gl2.addWidget(QLabel("Param"), 0, 0)
+        for i, c in enumerate(cols):
+            if c == 'NoLoad':
+                lbl = QLabel(c); lbl.setStyleSheet("font-weight:bold"); lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                gl2.addWidget(lbl, 0, i+1)
+                self.gen_inputs[c] = {'en': None}
+            else:
+                chk = QCheckBox(c); chk.setChecked(False)
+                gl2.addWidget(chk, 0, i+1)
+                self.gen_inputs[c] = {'en': chk}
         
-        self.lbl_nl=QLabel("NoLoad"); self.lbl_nl.setStyleSheet("font-weight:bold")
-        self.cnt_nl=QLineEdit("6"); self.v_nl=QLineEdit("1.2"); self.w_nl=QLineEdit("30.0")
-        gl2.addWidget(self.lbl_nl,1,0); gl2.addWidget(self.cnt_nl,1,1); gl2.addWidget(self.v_nl,1,2); gl2.addWidget(self.w_nl,1,3)
+        # Rows configuration
+        rows = [
+            ("Count", "cnt", "6"), ("Max V", "v", "1.2"), ("Max W", "w", "30.0"),
+            ("Shadow", "sh", True), ("Inc Shape", "inc", True),
+            ("Fwd Linear", "fwd", True), ("Curve Turn", "turn", True),
+            ("Inplace", "ip", True), ("Patch Notches", "notch", True)
+        ]
         
-        self.chk_l1=QCheckBox("Load1"); self.chk_l1.setChecked(False)
-        self.cnt_l1=QLineEdit("6"); self.v_l1=QLineEdit("1.0"); self.w_l1=QLineEdit("20.0"); self.sh_l1=QCheckBox(); self.sh_l1.setChecked(True); self.inc_l1=QCheckBox(); self.inc_l1.setChecked(True)
-        gl2.addWidget(self.chk_l1,2,0); gl2.addWidget(self.cnt_l1,2,1); gl2.addWidget(self.v_l1,2,2); gl2.addWidget(self.w_l1,2,3); gl2.addWidget(self.sh_l1,2,4); gl2.addWidget(self.inc_l1,2,5)
-        
-        self.chk_l2=QCheckBox("Load2"); self.chk_l2.setChecked(False)
-        self.cnt_l2=QLineEdit("6"); self.v_l2=QLineEdit("0.8"); self.w_l2=QLineEdit("15.0"); self.sh_l2=QCheckBox(); self.sh_l2.setChecked(True); self.inc_l2=QCheckBox(); self.inc_l2.setChecked(True)
-        gl2.addWidget(self.chk_l2,3,0); gl2.addWidget(self.cnt_l2,3,1); gl2.addWidget(self.v_l2,3,2); gl2.addWidget(self.w_l2,3,3); gl2.addWidget(self.sh_l2,3,4); gl2.addWidget(self.inc_l2,3,5)
-        
-        self.c_fwd=QCheckBox("Fwd Linear"); self.c_fwd.setChecked(True)
-        self.c_ip=QCheckBox("In-Place Spin"); self.c_ip.setChecked(True)
-        self.c_turn=QCheckBox("Curve Turn"); self.c_turn.setChecked(True)
-        self.c_notch=QCheckBox("Patch Notches"); self.c_notch.setChecked(True)
-        
-        hb=QHBoxLayout(); hb.addWidget(self.c_fwd); hb.addWidget(self.c_ip); hb.addWidget(self.c_turn); hb.addWidget(self.c_notch)
-        gl2.addLayout(hb,4,0,1,6)
+        def get_def(c, k, d):
+            if c=='NoLoad':
+                if k in ['sh','inc']: return False
+                if k=='v': return "1.2"
+                if k=='w': return "30.0"
+            if c=='Load1': return "1.0" if k=='v' else ("20.0" if k=='w' else d)
+            if c=='Load2': return "0.8" if k=='v' else ("15.0" if k=='w' else d)
+            return d
+
+        for r, (lbl, key, default_val) in enumerate(rows):
+            gl2.addWidget(QLabel(lbl), r+1, 0)
+            for c_idx, c in enumerate(cols):
+                val = get_def(c, key, default_val)
+                if isinstance(val, bool): w = QCheckBox(); w.setChecked(val)
+                else: w = QLineEdit(str(val))
+                gl2.addWidget(w, r+1, c_idx+1)
+                self.gen_inputs[c][key] = w
 
         bg=QPushButton("Populate Table"); bg.clicked.connect(self.pop)
-        gl2.addWidget(bg,5,0,1,6); fl.addWidget(gi)
+        gl2.addWidget(bg, len(rows)+1, 0, 1, 4); fl.addWidget(gi)
         
         xb=QPushButton("EXECUTE BATCH"); xb.setStyleSheet("background:#2E7D32;color:white;font-weight:bold;height:45px")
         xb.clicked.connect(self.exe); fl.addWidget(xb); fl.addStretch(); l.addWidget(f)
@@ -814,17 +850,18 @@ class GenTab(QWidget):
     def pop(self):
         try:
             self.tbl.setRowCount(0); idx=1
-            
-            cfgs = []
-            cfgs.append(('NoLoad', int(self.cnt_nl.text()), float(self.v_nl.text()), float(self.w_nl.text())))
-            if self.chk_l1.isChecked(): cfgs.append(('Load1', int(self.cnt_l1.text()), float(self.v_l1.text()), float(self.w_l1.text())))
-            if self.chk_l2.isChecked(): cfgs.append(('Load2', int(self.cnt_l2.text()), float(self.v_l2.text()), float(self.w_l2.text())))
-            
-            use_lin = self.c_fwd.isChecked()
-            use_ip = self.c_ip.isChecked()
-            use_crv = self.c_turn.isChecked()
-            
-            for ld, cnt, mv, mw in cfgs:
+            for ld in ['NoLoad', 'Load1', 'Load2']:
+                inp = self.gen_inputs[ld]
+                if inp['en'] and not inp['en'].isChecked(): continue
+                
+                cnt = int(inp['cnt'].text())
+                mv = float(inp['v'].text())
+                mw = float(inp['w'].text())
+                
+                use_lin = inp['fwd'].isChecked()
+                use_crv = inp['turn'].isChecked()
+                use_ip = inp['ip'].isChecked()
+                
                 rem = cnt
                 
                 # In-Place (Velocity 0)
@@ -1154,15 +1191,15 @@ class HelpTab(QWidget):
                 </ul>
             </li>
             <li><b>Plan Auto-Gen:</b>
+                <p>Parameters are configured per load case (NoLoad, Load1, Load2) in a grid:</p>
                 <ul>
-                    <li><b>Type:</b> Enable/Disable generation for NoLoad, Load1, or Load2.</li>
-                    <li><b>Count:</b> Number of cases to generate per load type.</li>
-                    <li><b>Max V/W:</b> Maximum Linear (m/s) and Angular (deg/s) velocities for generation.</li>
-                    <li><b>Shadow:</b> Enable shadow casting for Load1/Load2 (prevents fields from going through the load).</li>
+                    <li><b>Count, Max V, Max W:</b> Define the range and density of cases generated.</li>
+                    <li><b>Shadow:</b> Enable/Disable shadow casting (blind spots) for the load.</li>
+                    <li><b>Inc Shape:</b> Include the load geometry in the base footprint for collision checks.</li>
+                    <li><b>Motion Types:</b> Select specific motions (Fwd Linear, Curve Turn, Inplace) for each load.</li>
+                    <li><b>Patch Notches:</b> Enable post-processing for rotation fields per load.</li>
                 </ul>
             </li>
-            <li><b>Motion Types:</b> Toggle Linear, In-Place, or Curve Turns.</li>
-            <li><b>Patch Notches:</b> Enable post-processing to smooth out artifacts in rotation fields.</li>
             <li><b>Execute Batch:</b> Runs the simulation for all rows in the table.</li>
         </ul>
         
@@ -1211,18 +1248,11 @@ class App(QMainWindow):
                     'tr':float(pi['tr'].text()), 'ac':float(pi['ac'].text()), 'ds':float(pi['ds'].text()),
                     'pad':float(pi['pad'].text()), 'smooth':float(pi['sm'].text()), 
                     'lat_scale':float(pi['ls'].text()),
-                    'patch_notch': gn.c_notch.isChecked()
+                    'patch_notch': gn.gen_inputs[ltype]['notch'].isChecked()
                 }
                 
-                if ltype == 'Load1': 
-                    P['shadow'] = gn.sh_l1.isChecked()
-                    P['include_load'] = gn.inc_l1.isChecked()
-                elif ltype == 'Load2': 
-                    P['shadow'] = gn.sh_l2.isChecked()
-                    P['include_load'] = gn.inc_l2.isChecked()
-                else: 
-                    P['shadow'] = False
-                    P['include_load'] = False
+                P['shadow'] = gn.gen_inputs[ltype]['sh'].isChecked()
+                P['include_load'] = gn.gen_inputs[ltype]['inc'].isChecked()
                 
                 w_in = np.radians(w) # Input is Deg
                 gf, lid, trj, stp, val_d, ftrj, ign = SafetyMath.calc_case(FootPrint, lp, sens, v, w_in, P)

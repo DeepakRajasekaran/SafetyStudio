@@ -2,16 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1-beta]
+
+### Changed
+
+- **Gen Tab UI:** Refactored "Plan Auto-Gen" to a matrix layout. Motion types (Linear, Turn, In-Place) and "Patch Notches" are now configurable per load case instead of globally.
+- Updated Help documentation to reflect the new generation layout.
+
 ## [1.2.0-beta]
 
 ### Changed
 
 - **Major Shadowing Overhaul:** Replaced the approximate wedge-based shadow logic with a precise visibility-based algorithm. The new `get_shadow_wedge` computes the true shadow volume by extruding sensor-facing edges, correctly handling concave shapes, self-occlusion, and complex silhouettes without blind spots.
-
-## [1.1.2-beta]
-
-### Fixed
-
 - Fixed closure scope bug where "Edit Poly" and "Show Wrt Lidar" controls affected the wrong tab.
 - Fixed crash (NameError) and view refresh issue when deleting points in the Results editor.
 
