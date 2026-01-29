@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.1.1 beta"
+VERSION = "1.1.2 beta"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -886,11 +886,10 @@ class ResultsTab(QWidget):
             chk_lidar = QCheckBox("Show Wrt Lidar"); chk_lidar.setVisible(False)
             ml.addWidget(cmb); ml.addWidget(chk_lidar); ml.addWidget(chk_ed); ml.addWidget(view)
             
-            chk_lidar.toggled.connect(lambda: on_sel())
-            
             def on_sel(row=None, items=items, scn=scn, txt=txt, cmb=cmb, ls=ls, chk=chk_ed, chk_l=chk_lidar):
                 if row is None: row=ls.currentRow()
                 if row<0:return
+                myself = getattr(ls, 'on_sel_ref', None)
                 d=items[row]; scn.clear()
                 mode = cmb.currentText()
                 
@@ -1011,7 +1010,7 @@ class ResultsTab(QWidget):
                                          if len(poly_list) > 1: d['global'] = MultiPolygon(poly_list)
                                          else: d['global'] = poly_list[0]
                                          upd_lidars()
-                                         QTimer.singleShot(150, lambda: on_sel(row))
+                                         if myself: QTimer.singleShot(150, lambda: myself(row))
                                      return
                                  wx, wy = pos.x()/SCALE, -pos.y()/SCALE
                                  if v_idx < len(coords):
@@ -1091,9 +1090,11 @@ class ResultsTab(QWidget):
                     p2=QGraphicsLineItem(bx,by,bx,by-30); p2.setPen(QPen(QColor("#388E3C"),2)); scn.addItem(p2)
                     txt_b=QGraphicsTextItem("base_link"); txt_b.setFont(QFont("Arial", 6)); txt_b.setDefaultTextColor(QColor("white")); txt_b.setPos(bx-20,by); scn.addItem(txt_b)
             
+            ls.on_sel_ref = on_sel
             ls.currentRowChanged.connect(on_sel)
-            cmb.currentIndexChanged.connect(lambda: on_sel())
-            chk_ed.toggled.connect(lambda: on_sel())
+            cmb.currentIndexChanged.connect(lambda _, f=on_sel: f())
+            chk_ed.toggled.connect(lambda _, f=on_sel: f())
+            chk_lidar.toggled.connect(lambda _, f=on_sel: f())
             if ls.count()>0: ls.setCurrentRow(0)
             h.addWidget(ls); h.addWidget(mid, 1); h.addWidget(txt); self.tabs.addTab(w, k)
 

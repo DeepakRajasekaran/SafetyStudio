@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2-beta]
+
+### Fixed
+
+- Fixed closure scope bug where "Edit Poly" and "Show Wrt Lidar" controls affected the wrong tab.
+- Fixed crash (NameError) and view refresh issue when deleting points in the Results editor.
+
 ## [1.1.1-beta]
 
 ### Fixed
@@ -28,9 +35,9 @@ All notable changes to this project will be documented in this file.
 
 ### Todo
 
-- Linear field should be a trapezoid.
 - Consider the lidar as mask. (i.e. right shouldn't interfere with the left if placed parallel and vise versa)
 - export as nanoscan format (export in results)
 - introduce field sets and fields
 - monitoring_case table generation and export as nanoscan format
 - import custom fields as dxf
+- Linear field should be a trapezoid.
