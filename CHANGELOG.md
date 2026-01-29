@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2-beta]
+
+### Added
+
+- **Lidar Self-Occlusion:** Added "Diameter" parameter to LiDAR configuration.
+- **False Positive Prevention:** Neighboring lidars falling within a sensor's FOV now cast shadows based on their physical diameter instead of being treated as point obstacles or ignored. This prevents lidars from seeing each other as safety hazards.
+
 ## [1.2.1-beta]
 
 ### Changed

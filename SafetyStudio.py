@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.2.1-beta"
+VERSION = "1.2.2-beta"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -403,6 +403,26 @@ class SafetyMath:
                 
                 clip = final.intersection(fov)
                 
+                # --- Lidar Self-Occlusion Logic ---
+                # Generate shadows for OTHER lidars that are inside THIS lidar's FOV
+                lidar_shadows = []
+                for other_s in sensors:
+                    if other_s is s: continue # Don't shadow self
+                    
+                    # Create obstacle circle for the other lidar
+                    dia = other_s.get('dia', 0.15)
+                    obs_circle = Point(other_s['x'], other_s['y']).buffer(dia/2.0)
+                    
+                    # Check if the circle intersects the FOV polygon (body check, not just origin)
+                    if fov.intersects(obs_circle):
+                        sh = SafetyMath.get_shadow_wedge(og, obs_circle, max_r*1.1)
+                        if sh: lidar_shadows.append(sh)
+                
+                if lidar_shadows:
+                    total_lidar_shadow = unary_union(lidar_shadows)
+                    clip = clip.difference(total_lidar_shadow)
+                # ----------------------------------
+
                 if load_poly:
                     clip = clip.difference(load_poly)
                 
@@ -587,10 +607,11 @@ class EditorTab(QWidget):
         fm=QGridLayout()
         self.i_nm=QLineEdit(); self.i_x=QLineEdit(); self.i_y=QLineEdit()
         self.i_mn=QLineEdit(); self.i_fv=QLineEdit(); self.i_rg=QLineEdit() # ADDED RANGE INPUT
+        self.i_dia=QLineEdit() # ADDED DIAMETER INPUT
         fm.addWidget(QLabel("Nm"),0,0); fm.addWidget(self.i_nm,0,1)
         fm.addWidget(QLabel("X"),1,0); fm.addWidget(self.i_x,1,1); fm.addWidget(QLabel("Y"),1,2); fm.addWidget(self.i_y,1,3)
         fm.addWidget(QLabel("Deg"),2,0); fm.addWidget(self.i_mn,2,1); fm.addWidget(QLabel("FOV"),2,2); fm.addWidget(self.i_fv,2,3)
-        fm.addWidget(QLabel("Rng"),3,0); fm.addWidget(self.i_rg,3,1)
+        fm.addWidget(QLabel("Rng"),3,0); fm.addWidget(self.i_rg,3,1); fm.addWidget(QLabel("Dia"),3,2); fm.addWidget(self.i_dia,3,3)
         
         bu=QPushButton("Apply Sensor"); bu.clicked.connect(self.sav); rv.addLayout(fm); rv.addWidget(bu); rv.addStretch()
         
@@ -628,11 +649,11 @@ class EditorTab(QWidget):
     def upl(self): 
         self.lst.clear(); [self.lst.addItem(s['name']) for s in self.sens]; self.scn.update_sensors(self.sens)
     def ld(self, r): 
-        if r>=0: d=self.sens[r]; self.i_nm.setText(d['name']); self.i_x.setText(str(d['x'])); self.i_y.setText(str(d['y'])); self.i_mn.setText(str(d['mount'])); self.i_fv.setText(str(d['fov'])); self.i_rg.setText(str(d['r']))
+        if r>=0: d=self.sens[r]; self.i_nm.setText(d['name']); self.i_x.setText(str(d['x'])); self.i_y.setText(str(d['y'])); self.i_mn.setText(str(d['mount'])); self.i_fv.setText(str(d['fov'])); self.i_rg.setText(str(d['r'])); self.i_dia.setText(str(d.get('dia', 0.15)))
     def sav(self):
         r=self.lst.currentRow()
-        if r>=0: self.sens[r]={'name':self.i_nm.text(),'x':float(self.i_x.text()),'y':float(self.i_y.text()),'mount':float(self.i_mn.text()),'fov':float(self.i_fv.text()),'r':float(self.i_rg.text())}; self.upl()
-    def add(self): self.sens.append({'name':'New','x':0,'y':0,'mount':0,'fov':270,'r':10.0}); self.upl()
+        if r>=0: self.sens[r]={'name':self.i_nm.text(),'x':float(self.i_x.text()),'y':float(self.i_y.text()),'mount':float(self.i_mn.text()),'fov':float(self.i_fv.text()),'r':float(self.i_rg.text()),'dia':float(self.i_dia.text())}; self.upl()
+    def add(self): self.sens.append({'name':'New','x':0,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15}); self.upl()
     def dele(self):
         if self.lst.currentRow() >= 0:
             del self.sens[self.lst.currentRow()]
@@ -1168,7 +1189,7 @@ class HelpTab(QWidget):
         <h3 style='color:#2196F3'>1. Editor Tab</h3>
         <ul>
             <li><b>Footprint:</b> Import a DXF file defining the robot's base shape. Use 'Clr' to remove.</li>
-            <li><b>Sensors:</b> Configure LiDAR placement (X,Y), Mounting Angle, FOV, and Range.</li>
+            <li><b>Sensors:</b> Configure LiDAR placement (X,Y), Mounting Angle, FOV, Range, and <b>Diameter</b> (for self-occlusion).</li>
             <li><b>Loads:</b> Load additional DXF shapes for L1/L2 configurations (e.g., pallets). Use 'Clr' to remove.</li>
         </ul>
         <p><i><b>DXF Assumption:</b> The DXF origin (0,0) is considered as the <b>base_link</b>. Design DXF files accordingly (both footprint and loads should be defined w.r.t base link).</i></p>
