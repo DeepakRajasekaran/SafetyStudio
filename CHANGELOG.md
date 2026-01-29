@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0-beta]
+
+### Changed
+
+- **Major Shadowing Overhaul:** Replaced the approximate wedge-based shadow logic with a precise visibility-based algorithm. The new `get_shadow_wedge` computes the true shadow volume by extruding sensor-facing edges, correctly handling concave shapes, self-occlusion, and complex silhouettes without blind spots.
+
 ## [1.1.2-beta]
 
 ### Fixed

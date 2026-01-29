@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.1.2 beta"
+VERSION = "1.2.0-beta"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -86,6 +86,13 @@ class DxfHandler:
                 arc_pts = [(c.x + r*np.cos(a), c.y + r*np.sin(a)) for a in angles]
                 lines.append(LineString(arc_pts))
             
+            # Support for CIRCLEs
+            for e in msp.query('CIRCLE'):
+                c = e.dxf.center; r = e.dxf.radius
+                angles = np.linspace(0, 2*np.pi, 73)
+                pts = [(c.x + r*np.cos(a), c.y + r*np.sin(a)) for a in angles]
+                polys.append(Polygon(pts))
+            
             # Try to infer polygons from lines (for "exploded" CAD)
             if lines:
                 # 0. Snap lines to fix gaps
@@ -111,58 +118,72 @@ class DxfHandler:
 class SafetyMath:
     @staticmethod
     def get_shadow_wedge(og, load_poly, r):
+        """
+        Generates a shadow mask based on the visibility of the load polygon edges.
+        Instead of a single wedge, this computes the exact shadow volume by extruding
+        sensor-facing edges away from the sensor.
+        """
         if not load_poly or load_poly.is_empty: return None
         try:
-            # 1. Decompose Load Geometry (Per-Component Shadowing)
-            geoms = load_poly.geoms if hasattr(load_poly, 'geoms') else [load_poly]
-            wedges = []
+            # 1. Check for Full Occlusion (Sensor inside Load)
+            sensor = Point(og)
+            if load_poly.distance(sensor) < 1e-3:
+                return sensor.buffer(r)
+
+            shadows = []
             
-            for g in geoms:
-                pts = []
-                if g.geom_type == 'Polygon': pts = list(g.exterior.coords)
-                elif g.geom_type in ['LineString', 'LinearRing']: pts = list(g.coords)
-                if not pts: continue
-                
-                # 2. Shadow Computation Per Component
-                angles = sorted([np.arctan2(y - og[1], x - og[0]) for x, y in pts])
-                if not angles: continue
-                
-                max_gap = 0; gap_idx = -1; n = len(angles)
-                for i in range(n):
-                    diff = (angles[(i+1)%n] + 2*np.pi - angles[i]) if i==n-1 else (angles[i+1] - angles[i])
-                    if diff > max_gap: max_gap = diff; gap_idx = i
-                
-                start = angles[(gap_idx+1)%n]; end = angles[gap_idx]
-                if end < start: end += 2*np.pi
-                
-                # 3. Compute Near-Field Cutoff (Min Distance)
-                # Use Shapely distance from Point(og) to the geometry g
-                min_dist = Point(og).distance(g)
-                
-                # If object is further than max range, it casts no relevant shadow
-                if min_dist >= r: continue
-                
-                # 4. Build Truncated Shadow Wedge (Annular Sector)
-                # Inner arc at min_dist, Outer arc at r
-                wedge_pts = []
-                steps = max(2, int(np.degrees(end-start)/2.0)+2)
-                
-                # Inner Arc (CCW)
-                if min_dist < 1e-3: wedge_pts.append(og)
-                else:
-                    for a in np.linspace(start, end, steps):
-                        wedge_pts.append((og[0]+min_dist*np.cos(a), og[1]+min_dist*np.sin(a)))
-                
-                # Outer Arc (CW)
-                for a in np.linspace(end, start, steps):
-                    wedge_pts.append((og[0]+r*np.cos(a), og[1]+r*np.sin(a)))
-                
-                wedges.append(Polygon(wedge_pts))
+            # Helper to process geometry recursively
+            def process_geom(geom):
+                if geom.geom_type == 'Polygon':
+                    # Ensure CCW orientation for consistent "Right-Hand" logic
+                    if not geom.exterior.is_ccw:
+                        geom = Polygon(list(geom.exterior.coords)[::-1])
+                    
+                    pts = list(geom.exterior.coords)
+                    if len(pts) < 2: return
+
+                    for i in range(len(pts) - 1):
+                        p1 = pts[i]; p2 = pts[i+1]
+                        
+                        # 2. Visibility Check (Cross Product)
+                        # Edge Vector: E = P2 - P1, Sensor Vector: S = OG - P1
+                        # CP = Ex*Sy - Ey*Sx
+                        # For CCW polygon: Interior is Left, Exterior is Right.
+                        # If Sensor is to the Right (CP < 0), the edge faces the sensor.
+                        cp = (p2[0]-p1[0])*(og[1]-p1[1]) - (p2[1]-p1[1])*(og[0]-p1[0])
+                        
+                        if cp < -1e-6:
+                            # 3. Extrude Edge to Max Range (Edge-Local Depth)
+                            v1 = (p1[0]-og[0], p1[1]-og[1])
+                            v2 = (p2[0]-og[0], p2[1]-og[1])
+                            
+                            d1 = math.hypot(v1[0], v1[1])
+                            d2 = math.hypot(v2[0], v2[1])
+                            
+                            if d1 < 1e-4 or d2 < 1e-4: continue
+                            
+                            # Scale vectors to max range r
+                            s1 = r / d1; s2 = r / d2
+                            p1_ext = (og[0] + v1[0]*s1, og[1] + v1[1]*s1)
+                            p2_ext = (og[0] + v2[0]*s2, og[1] + v2[1]*s2)
+                            
+                            # 4. Construct Shadow Quadrilateral
+                            # P1 -> P2 -> P2_ext -> P1_ext forms the shadow volume
+                            shadows.append(Polygon([p1, p2, p2_ext, p1_ext]))
+
+                elif geom.geom_type in ['MultiPolygon', 'GeometryCollection']:
+                    for g in geom.geoms: process_geom(g)
             
-            # 3. Union Shadows Conservatively
-            if not wedges: return None
-            return unary_union(wedges)
-        except: return None
+            process_geom(load_poly)
+            
+            if not shadows: return None
+            
+            # 5. Union Shadows
+            # Combine all edge shadows into a single occlusion mask
+            return unary_union(shadows).buffer(0)
+        except Exception as e:
+            print(f"Shadow Error: {e}")
+            return None
 
     @staticmethod
     def patch_notch(poly):
@@ -984,7 +1005,10 @@ class ResultsTab(QWidget):
                                  def upd_lidars():
                                      for l in d['lidars']:
                                          if 'fov_poly' not in l: continue
-                                         c = d['global'].intersection(l['fov_poly'])
+                                         # Fix for TopologyException during live-editing.
+                                         # buffer(0) is a common trick to repair invalid geometries.
+                                         valid_global = d['global'].buffer(0)
+                                         c = valid_global.intersection(l['fov_poly'])
                                          if d.get('load_poly'):
                                              c = c.difference(d['load_poly'])
                                              if l.get('shadow_poly'): c = c.difference(l['shadow_poly'])
@@ -1205,7 +1229,7 @@ class App(QMainWindow):
                 if gf is None: continue
                 
                 bpoly=FootPrint
-                if lp: bpoly=unary_union([bpoly, lp]).convex_hull
+                if lp and P.get('include_load', False): bpoly=unary_union([bpoly, lp]).convex_hull
                 
                 res.append({'desc':f"{ltype} {v} {w}", 'load':ltype, 'global':gf, 'lidars':lid, 'base':bpoly, 'steps':stp, 'load_poly':lp, 'traj':trj, 'dist_d':val_d, 'front_traj':ftrj, 'ignored_poly':ign})
             except:pass
