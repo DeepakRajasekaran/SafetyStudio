@@ -524,15 +524,7 @@ class RulerView(QGraphicsView):
         s = 1.1 if e.angleDelta().y() > 0 else 0.9; self.scale(s,s)
 
 # =====================================================================
-# 3. EDITOR COMPONENTS➜  SafetyConfigTool git:(main) ✗ python3 SafetyStudio.py
-Traceback (most recent call last):
-  File "/home/username/Documents/ANSCER/SafetyConfigTool/SafetyStudio.py", line 1265, in <module>
-    w=App(); w.show(); sys.exit(app.exec())
-  File "/home/username/Documents/ANSCER/SafetyConfigTool/SafetyStudio.py", line 1214, in __init__
-    self.t=QTabWidget(); self.ed=EditorTab(self); self.gn=GenTab(self); self.rs=ResultsTab(); self.hl=HelpTab()
-  File "/home/username/Documents/ANSCER/SafetyConfigTool/SafetyStudio.py", line 833, in __init__
-    xb.clicked.connect(self.exe); fl.addWidget(xb); fl.addStretch(); l.addWidget(f)
-AttributeError: 'QLabel' object has no attribute 'addWidget'
+# 3. EDITOR COMPONENTS
 # =====================================================================
 class EditorScene(BaseGridScene):
     def __init__(self):
