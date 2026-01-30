@@ -19,10 +19,10 @@ from PyQt6.QtWidgets import (
     QFileDialog, QScrollArea, QToolButton, QCheckBox, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
-from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath
+from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath, QPixmap, QImage
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.2.2-beta"
+VERSION = "1.3.0-beta"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -290,7 +290,7 @@ class SafetyMath:
         return Polygon(pts)
 
     @staticmethod
-    def calc_case(footprint, load_poly, sensors, v, w_input, P):
+    def calc_case(footprint, load_poly, sensors, v, w_input, P, override_poly=None):
         try:
             # 1. Geometry Prep (True Footprint vs Padded)
             raw_footprint_poly = footprint
@@ -373,19 +373,23 @@ class SafetyMath:
                     px,py,pth = traj[i-1]
                     traj[i] = [px+v*np.cos(pth)*dt, py+v*np.sin(pth)*dt, pth+ang_vel*dt]
                 
-                cx,cy,cth = traj[i]; rot_deg = np.degrees(cth - np.pi/2)
-                poly_instance = translate(rotate(FootPrint, rot_deg, origin=(0,0)), cx, cy)
-                sweeps.append(poly_instance)
+                if override_poly is None:
+                    cx,cy,cth = traj[i]; rot_deg = np.degrees(cth - np.pi/2)
+                    poly_instance = translate(rotate(FootPrint, rot_deg, origin=(0,0)), cx, cy)
+                    sweeps.append(poly_instance)
             
-            # 5. Union
-            sw_union = unary_union(sweeps)
-            
-            # 5b. Post-Processing Patch for In-Place Rotation (V-Notch Fix)
-            if abs(v) < 1e-3 and abs(ang_vel) > 1e-3 and P.get('patch_notch', False):
-                sw_union = SafetyMath.patch_notch(sw_union)
-            
-            # Add smoothing
-            final = sw_union.buffer(P.get('smooth',0.05), join_style=1).simplify(0.01)
+            if override_poly:
+                final = override_poly
+            else:
+                # 5. Union
+                sw_union = unary_union(sweeps)
+                
+                # 5b. Post-Processing Patch for In-Place Rotation (V-Notch Fix)
+                if abs(v) < 1e-3 and abs(ang_vel) > 1e-3 and P.get('patch_notch', False):
+                    sw_union = SafetyMath.patch_notch(sw_union)
+                
+                # Add smoothing
+                final = sw_union.buffer(P.get('smooth',0.05), join_style=1).simplify(0.01)
             
             # 6. Sensor Cuts
             lid_out = []
@@ -602,6 +606,7 @@ class EditorTab(QWidget):
         self.lst=QListWidget(); self.lst.setFixedHeight(120); self.lst.currentRowChanged.connect(self.ld)
         rv.addWidget(self.lst)
         bb=QHBoxLayout(); ba=QPushButton("+"); bd=QPushButton("-"); bb.addWidget(ba); bb.addWidget(bd)
+        ba.setStyleSheet("background:#1B5E20;font-weight:bold"); bd.setStyleSheet("background:#B71C1C;font-weight:bold")
         ba.clicked.connect(self.add); bd.clicked.connect(self.dele); rv.addLayout(bb)
         
         fm=QGridLayout()
@@ -613,20 +618,21 @@ class EditorTab(QWidget):
         fm.addWidget(QLabel("Deg"),2,0); fm.addWidget(self.i_mn,2,1); fm.addWidget(QLabel("FOV"),2,2); fm.addWidget(self.i_fv,2,3)
         fm.addWidget(QLabel("Rng"),3,0); fm.addWidget(self.i_rg,3,1); fm.addWidget(QLabel("Dia"),3,2); fm.addWidget(self.i_dia,3,3)
         
-        bu=QPushButton("Apply Sensor"); bu.clicked.connect(self.sav); rv.addLayout(fm); rv.addWidget(bu); rv.addStretch()
+        bu=QPushButton("Apply Sensor"); bu.setStyleSheet("background:#0D47A1;font-weight:bold;padding:6px"); bu.clicked.connect(self.sav); rv.addLayout(fm); rv.addWidget(bu); rv.addStretch()
         
         rv.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
         rv.addWidget(QLabel("<b>Geometry Loader</b>"))
         for k in ['FootPrint','L1','L2']:
             hb=QHBoxLayout()
             b=QPushButton(f"Load {k}"); b.clicked.connect(lambda _,x=k: self.load_sh(x))
-            b.setStyleSheet("background:#444;color:white;padding:4px"); hb.addWidget(b)
-            c=QPushButton("Clr"); c.setFixedWidth(40); c.setStyleSheet("background:#B71C1C;color:white;padding:4px"); c.clicked.connect(lambda _,x=k: self.clear_sh(x))
+            b.setStyleSheet("background:#0D47A1;font-weight:bold;color:white;padding:4px"); hb.addWidget(b)
+            c=QPushButton("Clr"); c.setFixedWidth(40); c.setStyleSheet("background:#B71C1C;font-weight:bold;color:white;padding:4px"); c.clicked.connect(lambda _,x=k: self.clear_sh(x))
             hb.addWidget(c); rv.addLayout(hb)
         
         rv.addSpacing(20)
         rv.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
         gc=QHBoxLayout(); be=QPushButton("Export Config"); bi=QPushButton("Import Config")
+        be.setStyleSheet("background:#4A148C;font-weight:bold;padding:5px"); bi.setStyleSheet("background:#4A148C;font-weight:bold;padding:5px")
         be.clicked.connect(self.exp_conf); bi.clicked.connect(self.imp_conf)
         gc.addWidget(be); gc.addWidget(bi); rv.addLayout(gc)
         rv.addStretch(); l.addWidget(r)
@@ -778,7 +784,12 @@ class GenTab(QWidget):
         f=QFrame(); f.setFixedWidth(500); fl=QVBoxLayout(f)
         
         gp=QGroupBox("Physics Config"); gl=QGridLayout(gp)
-        eq=QLabel("D = v*Tr + v^2/2a + Ds"); eq.setStyleSheet("color:cyan; font-weight:bold; margin-bottom:5px")
+        eq=QLabel()
+        pix=self.latex_to_pixmap(r"D = v \cdot T_r + \frac{v^2}{2a} + D_s")
+        if pix:
+            eq.setPixmap(pix); eq.setAlignment(Qt.AlignmentFlag.AlignCenter); eq.setStyleSheet("margin-bottom:5px")
+        else:
+            eq.setText("D = v*Tr + v^2/2a + Ds"); eq.setStyleSheet("color:cyan; font-weight:bold; margin-bottom:5px")
         gl.addWidget(eq,0,0,1,4)
         
         gl.addWidget(QLabel("Param"),1,0)
@@ -818,6 +829,7 @@ class GenTab(QWidget):
                 self.gen_inputs[c] = {'en': None}
             else:
                 chk = QCheckBox(c); chk.setChecked(False)
+                chk.setStyleSheet("QCheckBox::indicator { width: 15px; height: 15px; }")
                 gl2.addWidget(chk, 0, i+1)
                 self.gen_inputs[c] = {'en': chk}
         
@@ -842,23 +854,45 @@ class GenTab(QWidget):
             gl2.addWidget(QLabel(lbl), r+1, 0)
             for c_idx, c in enumerate(cols):
                 val = get_def(c, key, default_val)
-                if isinstance(val, bool): w = QCheckBox(); w.setChecked(val)
+                if isinstance(val, bool): 
+                    w = QCheckBox(); w.setChecked(val)
+                    w.setStyleSheet("QCheckBox::indicator { width: 15px; height: 15px; }")
                 else: w = QLineEdit(str(val))
                 gl2.addWidget(w, r+1, c_idx+1)
                 self.gen_inputs[c][key] = w
 
         bg=QPushButton("Populate Table"); bg.clicked.connect(self.pop)
+        bg.setStyleSheet("background:#0D47A1;font-weight:bold;padding:5px")
         gl2.addWidget(bg, len(rows)+1, 0, 1, 4); fl.addWidget(gi)
         
-        xb=QPushButton("EXECUTE BATCH"); xb.setStyleSheet("background:#2E7D32;color:white;font-weight:bold;height:45px")
+        xb=QPushButton("EXECUTE BATCH"); xb.setStyleSheet("background:#1B5E20;color:white;font-weight:bold;height:45px")
         xb.clicked.connect(self.exe); fl.addWidget(xb); fl.addStretch(); l.addWidget(f)
         
         # Table
-        self.tbl=QTableWidget(0,4); self.tbl.setHorizontalHeaderLabels(["ID","Load","Vel","W(deg)"])
+        rhs=QWidget(); rhl=QVBoxLayout(rhs); rhl.setContentsMargins(0,0,0,0)
+        self.tbl=QTableWidget(0,5); self.tbl.setHorizontalHeaderLabels(["ID","Load","Vel","W(deg)","Custom Field"])
         self.tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        l.addWidget(self.tbl)
+        rhl.addWidget(self.tbl)
+        
+        tb=QHBoxLayout(); b1=QPushButton("Add Case"); b2=QPushButton("Remove Case"); b3=QPushButton("Import Field DXF"); b4=QPushButton("Clear Field DXF")
+        b1.setStyleSheet("background:#1B5E20;font-weight:bold"); b2.setStyleSheet("background:#B71C1C;font-weight:bold"); b3.setStyleSheet("background:#0D47A1;font-weight:bold"); b4.setStyleSheet("background:#B71C1C;font-weight:bold")
+        b1.clicked.connect(self.add_case); b2.clicked.connect(self.del_case); b3.clicked.connect(self.imp_field); b4.clicked.connect(self.clr_field)
+        tb.addWidget(b1); tb.addWidget(b2); tb.addWidget(b3); tb.addWidget(b4); rhl.addLayout(tb); l.addWidget(rhs)
     
     def mk(self,l,t,v,r): l.addWidget(QLabel(t),r,0); e=QLineEdit(str(v)); l.addWidget(e,r,1); return e
+    
+    def latex_to_pixmap(self, text):
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            fig = Figure(figsize=(4.5, 0.6), dpi=100); fig.patch.set_alpha(0)
+            canvas = FigureCanvasAgg(fig); ax = fig.add_axes([0,0,1,1]); ax.axis('off')
+            ax.text(0.5, 0.5, f"${text}$", fontsize=14, ha='center', va='center', color='#00FFFF')
+            canvas.draw(); w,h = canvas.get_width_height(); buf = canvas.buffer_rgba()
+            return QPixmap.fromImage(QImage(buf, w, h, QImage.Format.Format_RGBA8888))
+        except: return None
     
     def pop(self):
         try:
@@ -907,6 +941,27 @@ class GenTab(QWidget):
         self.tbl.setItem(r,1,QTableWidgetItem(l))
         self.tbl.setItem(r,2,QTableWidgetItem(f"{v:.2f}"))
         self.tbl.setItem(r,3,QTableWidgetItem(f"{w:.1f}"))
+        self.tbl.setItem(r,4,QTableWidgetItem(""))
+    
+    def add_case(self):
+        r=self.tbl.rowCount(); self.tbl.insertRow(r)
+        self.tbl.setItem(r,0,QTableWidgetItem(str(r+1))); self.tbl.setItem(r,1,QTableWidgetItem("NoLoad"))
+        self.tbl.setItem(r,2,QTableWidgetItem("0.5")); self.tbl.setItem(r,3,QTableWidgetItem("0.0"))
+        self.tbl.setItem(r,4,QTableWidgetItem(""))
+    def del_case(self):
+        r=self.tbl.currentRow()
+        if r>=0: self.tbl.removeRow(r)
+    def imp_field(self):
+        r=self.tbl.currentRow()
+        if r<0: return
+        f,_=QFileDialog.getOpenFileName(self,"Open DXF","","DXF (*.dxf)")
+        if f:
+            try:
+                p=DxfHandler.load(f); it=QTableWidgetItem(f.replace('\\','/').split('/')[-1]); it.setData(Qt.ItemDataRole.UserRole, p); it.setToolTip(f); self.tbl.setItem(r,4,it)
+            except Exception as e: QMessageBox.critical(self,"Err",str(e))
+    def clr_field(self):
+        r=self.tbl.currentRow()
+        if r>=0: self.tbl.setItem(r,4,QTableWidgetItem(""))
     
     def exe(self): self.main.run_sim()
     
@@ -934,10 +989,18 @@ class ResultsTab(QWidget):
     def __init__(self):
         super().__init__(); layout=QVBoxLayout(self); self.tabs=QTabWidget(); layout.addWidget(self.tabs)
     def render(self, data):
-        self.tabs.clear(); g={}
-        for d in data: g.setdefault(d['load'],[]).append(d)
+        self.tabs.clear()
+        std = ['NoLoad', 'Load1', 'Load2']
+        g = {k:[] for k in std}; g['Misc'] = []
         
-        for k, items in g.items():
+        for d in data:
+            if d['load'] in std: g[d['load']].append(d)
+            else: g['Misc'].append(d)
+        
+        for k in std + ['Misc']:
+            items = g[k]
+            if not items: continue
+            
             w=QWidget(); h=QHBoxLayout(w); ls=QListWidget(); ls.setFixedWidth(200)
             [ls.addItem(i['desc']) for i in items]
             
@@ -1213,7 +1276,14 @@ class HelpTab(QWidget):
                     <li><b>Patch Notches:</b> Enable post-processing for rotation fields per load.</li>
                 </ul>
             </li>
-            <li><b>Execute Batch:</b> Runs the simulation for all rows in the table.</li>
+            <li><b>Manual Overrides:</b>
+                <p>Use the toolbar below the table to modify the plan:</p>
+                <ul>
+                    <li><b>Add/Remove Case:</b> Manually insert or delete simulation rows.</li>
+                    <li><b>Import Field DXF:</b> Load a custom DXF to override the auto-generated field for a specific row. Shadows are still applied if enabled.</li>
+                </ul>
+            </li>
+            <li><b>Execute Batch:</b> Runs the simulation. Custom cases appear in the <b>Misc</b> tab in Results.</li>
         </ul>
         
         <h3 style='color:#2196F3'>3. Results Tab</h3>
@@ -1250,25 +1320,29 @@ class App(QMainWindow):
                 ltype=tbl.item(r,1).text(); v=float(tbl.item(r,2).text()); w=float(tbl.item(r,3).text())
                 lp = ld_p.get(ltype, None)
                 
-                if ltype not in gn.phy_inputs: continue
+                # Fallback to NoLoad config for custom types
+                cfg = ltype if ltype in gn.phy_inputs else 'NoLoad'
                 
-                use_k = ltype
-                if ltype != 'NoLoad' and 'en_chk' in gn.phy_inputs[ltype] and not gn.phy_inputs[ltype]['en_chk'].isChecked():
-                    use_k = 'NoLoad'
+                if cfg != 'NoLoad' and 'en_chk' in gn.phy_inputs[cfg] and not gn.phy_inputs[cfg]['en_chk'].isChecked():
+                    cfg = 'NoLoad'
                 
-                pi = gn.phy_inputs[use_k]
+                pi = gn.phy_inputs[cfg]
                 P={
                     'tr':float(pi['tr'].text()), 'ac':float(pi['ac'].text()), 'ds':float(pi['ds'].text()),
                     'pad':float(pi['pad'].text()), 'smooth':float(pi['sm'].text()), 
                     'lat_scale':float(pi['ls'].text()),
-                    'patch_notch': gn.gen_inputs[ltype]['notch'].isChecked()
+                    'patch_notch': gn.gen_inputs[cfg]['notch'].isChecked()
                 }
                 
-                P['shadow'] = gn.gen_inputs[ltype]['sh'].isChecked()
-                P['include_load'] = gn.gen_inputs[ltype]['inc'].isChecked()
+                P['shadow'] = gn.gen_inputs[cfg]['sh'].isChecked()
+                P['include_load'] = gn.gen_inputs[cfg]['inc'].isChecked()
                 
+                ovr = None
+                it = tbl.item(r, 4)
+                if it: ovr = it.data(Qt.ItemDataRole.UserRole)
+
                 w_in = np.radians(w) # Input is Deg
-                gf, lid, trj, stp, val_d, ftrj, ign = SafetyMath.calc_case(FootPrint, lp, sens, v, w_in, P)
+                gf, lid, trj, stp, val_d, ftrj, ign = SafetyMath.calc_case(FootPrint, lp, sens, v, w_in, P, override_poly=ovr)
                 if gf is None: continue
                 
                 bpoly=FootPrint

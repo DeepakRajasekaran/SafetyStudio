@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0-beta]
+
+### Added
+
+- **Manual Case Management:** Added toolbar in Gen Tab to manually Add/Remove rows in the generation table.
+- **DXF Field Override:** Users can now import a custom DXF shape ("Import Field DXF") to use as the base safety field for a specific case, overriding the auto-generation logic while preserving shadow processing.
+- **Misc Results Tab:** Custom load names or manually added cases now appear in a "Misc" tab in Results.
+- **Physics Equation Rendering:** Physics formulas now render using LaTeX (via matplotlib) if available.
+
+### Changed
+
+- **UI Visuals:** Standardized button colors (Green=Add/Exec, Red=Remove/Clear, Blue=Action, Purple=IO) and increased font weight for better visibility.
+- **Checkbox Visibility:** Increased size of checkboxes in Gen Tab for better usability.
+- **Custom Load Logic:** Custom load types now fallback to "NoLoad" physics parameters instead of being skipped.
+
 ## [1.2.2-beta]
 
 ### Added
@@ -50,7 +65,7 @@ All notable changes to this project will be documented in this file.
 
 ### Todo
 
-- Consider the lidar as mask. (i.e. right shouldn't interfere with the left if placed parallel and vise versa)
+- ~~Consider the lidar as mask. (i.e. right shouldn't interfere with the left if placed parallel and vise versa)~~
 - export as nanoscan format (export in results)
 - introduce field sets and fields
 - monitoring_case table generation and export as nanoscan format
