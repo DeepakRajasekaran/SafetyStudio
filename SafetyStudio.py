@@ -4,7 +4,6 @@ import signal
 import ezdxf
 import numpy as np
 import json
-import datetime
 import xml.etree.ElementTree as ET
 from shapely.geometry import Polygon, MultiPoint, Point, MultiPolygon, LineString, GeometryCollection, MultiLineString
 from shapely import wkt
@@ -24,7 +23,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath, QPixmap, QImage
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -644,6 +643,9 @@ class EditorTab(QWidget):
         be.setStyleSheet("background:#3E2754;font-weight:bold;padding:5px"); bi.setStyleSheet("background:#3E2754;font-weight:bold;padding:5px")
         be.clicked.connect(self.exp_conf); bi.clicked.connect(self.imp_conf)
         gc.addWidget(be); gc.addWidget(bi); rv.addLayout(gc)
+        
+        bn=QPushButton("Next >"); bn.setStyleSheet("background:teal;font-weight:bold;padding:6px;margin-top:5px")
+        bn.clicked.connect(lambda: self.main.t.setCurrentIndex(1)); rv.addWidget(bn)
         rv.addStretch(); l.addWidget(r)
         
         self.polys={'FootPrint':[],'L1':[],'L2':[]}
@@ -1405,10 +1407,13 @@ class HardwareExportTab(QWidget):
         # Check eligibility for Auto-Gen
         res = getattr(self.main, 'sim_results', [])
         groups = {'NoLoad': [], 'Load1': [], 'Load2': []}
+        has_custom = False
         for r in res:
-            if r['load'] in groups: groups[r['load']].append(r)
+            if r.get('is_custom', False): has_custom = True
+            elif r['load'] in groups: groups[r['load']].append(r)
         active_counts = [len(g) for g in groups.values() if len(g) > 0]
-        is_valid = len(active_counts) > 0 and all(c == active_counts[0] for c in active_counts)
+        is_sym = len(active_counts) == 0 or all(c == active_counts[0] for c in active_counts)
+        is_valid = is_sym and (len(active_counts) > 0 or has_custom)
         self.btn_autogen.setEnabled(is_valid)
         self.btn_autogen.setToolTip("Requires equal number of cases for all active load types." if not is_valid else "")
 
@@ -1470,23 +1475,32 @@ class HardwareExportTab(QWidget):
     def auto_gen_fieldsets(self):
         res = getattr(self.main, 'sim_results', [])
         groups = {'NoLoad': [], 'Load1': [], 'Load2': []}
+        custom_list = []
         for r in res:
-            if r['load'] in groups: groups[r['load']].append(r)
+            if r.get('is_custom', False): custom_list.append(r)
+            elif r['load'] in groups: groups[r['load']].append(r)
         
         order = ['NoLoad', 'Load1', 'Load2']
         active_keys = [k for k in order if len(groups[k]) > 0]
-        if not active_keys: return
         
-        count = len(groups[active_keys[0]])
         self.fieldsets = []
-        for i in range(count):
-            fs_name = f"Set {i+1}"
+        if active_keys:
+            count = len(groups[active_keys[0]])
+            for i in range(count):
+                fs_name = f"Set {i+1}"
+                fields = []
+                for idx, k in enumerate(active_keys):
+                    fields.append({'name': f'Field{idx+1}', 'case': groups[k][i]['desc']})
+                self.fieldsets.append({'name': fs_name, 'fields': fields})
+        
+        if custom_list:
+            fs_name = "Custom Set"
             fields = []
-            for idx, k in enumerate(active_keys):
-                fields.append({'name': f'Field{idx+1}', 'case': groups[k][i]['desc']})
+            for idx, r in enumerate(custom_list):
+                fields.append({'name': f'Custom{idx+1}', 'case': r['desc']})
             self.fieldsets.append({'name': fs_name, 'fields': fields})
         self.refresh_fs(); self.f_tbl.setRowCount(0)
-        QMessageBox.information(self, "Auto-Gen", f"Generated {count} fieldsets.")
+        QMessageBox.information(self, "Auto-Gen", f"Generated {len(self.fieldsets)} fieldsets.")
 
     def load_temp(self):
         f,_=QFileDialog.getOpenFileName(self,"Load Template","","XML (*.xml *.sdxml)")
@@ -1565,6 +1579,7 @@ class HelpTab(QWidget):
             <li><b>Footprint:</b> Import a DXF file defining the robot's base shape. Use 'Clr' to remove.</li>
             <li><b>Sensors:</b> Configure LiDAR placement (X,Y), Mounting Angle, FOV, Range, and <b>Diameter</b> (for self-occlusion).</li>
             <li><b>Loads:</b> Load additional DXF shapes for L1/L2 configurations (e.g., pallets). Use 'Clr' to remove.</li>
+            <li><b>Navigation:</b> Use the <b>Next &gt;</b> button to proceed to the Generation tab.</li>
         </ul>
         <p><i><b>DXF Assumption:</b> The DXF origin (0,0) is considered as the <b>base_link</b>. Design DXF files accordingly (both footprint and loads should be defined w.r.t base link).</i></p>
         
@@ -1667,7 +1682,7 @@ class App(QMainWindow):
                 bpoly=FootPrint
                 if lp and P.get('include_load', False): bpoly=unary_union([bpoly, lp]).convex_hull
                 
-                res.append({'desc':f"{ltype} {v} {w}", 'load':ltype, 'global':gf, 'lidars':lid, 'base':bpoly, 'steps':stp, 'load_poly':lp, 'traj':trj, 'dist_d':val_d, 'front_traj':ftrj, 'ignored_poly':ign})
+                res.append({'desc':f"{ltype} {v} {w}", 'load':ltype, 'global':gf, 'lidars':lid, 'base':bpoly, 'steps':stp, 'load_poly':lp, 'traj':trj, 'dist_d':val_d, 'front_traj':ftrj, 'ignored_poly':ign, 'is_custom': ovr is not None})
             except:pass
         self.sim_results = res; self.rs.render(res); self.t.setCurrentIndex(2)
 

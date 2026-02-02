@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1]
+
+### Added
+- **Navigation:** Added "Next >" button in Editor tab for easier workflow navigation.
+
+### Fixed
+- **Hardware Export:** Auto-Gen Fieldsets now correctly handles custom/manual cases by grouping them into a separate "Custom Set".
+- **UI:** Updated navigation button style.
+
 ## [1.4.0]
 
 ### Added
