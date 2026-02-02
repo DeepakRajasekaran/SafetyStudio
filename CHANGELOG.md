@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.3.0-beta]
+## [1.4.0]
 
 ### Added
 
@@ -66,8 +66,8 @@ All notable changes to this project will be documented in this file.
 ### Todo
 
 - ~~Consider the lidar as mask. (i.e. right shouldn't interfere with the left if placed parallel and vise versa)~~
-- export as nanoscan format (export in results)
-- introduce field sets and fields
-- monitoring_case table generation and export as nanoscan format
-- import custom fields as dxf
+- ~~export as nanoscan format (export in results)~~
+- ~~introduce field sets and fields~~
+- ~~monitoring_case table generation and export as nanoscan format~~
+- ~~import custom fields as dxf~~
 - Linear field should be a trapezoid.

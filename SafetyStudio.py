@@ -4,6 +4,8 @@ import signal
 import ezdxf
 import numpy as np
 import json
+import datetime
+import xml.etree.ElementTree as ET
 from shapely.geometry import Polygon, MultiPoint, Point, MultiPolygon, LineString, GeometryCollection, MultiLineString
 from shapely import wkt
 from shapely.ops import unary_union, polygonize, linemerge
@@ -15,14 +17,14 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsPathItem,
     QGraphicsTextItem, QGridLayout, QTabWidget, QDialog, QRadioButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel, 
-    QLineEdit, QGroupBox, QMessageBox, QListWidget, QTextEdit, QFrame, 
+    QLineEdit, QGroupBox, QMessageBox, QListWidget, QListWidgetItem, QTextEdit, QFrame, 
     QFileDialog, QScrollArea, QToolButton, QCheckBox, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath, QPixmap, QImage
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.3.0-beta"
+VERSION = "1.4.0"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -602,43 +604,50 @@ class EditorTab(QWidget):
         
         # Right Config
         r=QFrame(); r.setFixedWidth(300); rv=QVBoxLayout(r)
+        
+        hb_mx = QHBoxLayout(); hb_mx.addWidget(QLabel("Max Fields/Lidar:")); self.i_max_fields = QLineEdit("128")
+        hb_mx.addWidget(self.i_max_fields); rv.addLayout(hb_mx)
+        
         rv.addWidget(QLabel("<b>LiDAR Manager</b>"))
         self.lst=QListWidget(); self.lst.setFixedHeight(120); self.lst.currentRowChanged.connect(self.ld)
         rv.addWidget(self.lst)
         bb=QHBoxLayout(); ba=QPushButton("+"); bd=QPushButton("-"); bb.addWidget(ba); bb.addWidget(bd)
-        ba.setStyleSheet("background:#1B5E20;font-weight:bold"); bd.setStyleSheet("background:#B71C1C;font-weight:bold")
+        ba.setStyleSheet("background:#224A25;font-weight:bold"); bd.setStyleSheet("background:#662222;font-weight:bold")
         ba.clicked.connect(self.add); bd.clicked.connect(self.dele); rv.addLayout(bb)
         
         fm=QGridLayout()
-        self.i_nm=QLineEdit(); self.i_x=QLineEdit(); self.i_y=QLineEdit()
+        self.i_nm=QLineEdit(); self.i_mod=QComboBox(); self.i_mod.addItems(["nanoScan3"])
+        self.i_x=QLineEdit(); self.i_y=QLineEdit()
         self.i_mn=QLineEdit(); self.i_fv=QLineEdit(); self.i_rg=QLineEdit() # ADDED RANGE INPUT
-        self.i_dia=QLineEdit() # ADDED DIAMETER INPUT
-        fm.addWidget(QLabel("Nm"),0,0); fm.addWidget(self.i_nm,0,1)
+        self.i_dia=QLineEdit(); self.i_flp=QCheckBox("Flipped (Upside Down)")
+        
+        fm.addWidget(QLabel("Nm"),0,0); fm.addWidget(self.i_nm,0,1); fm.addWidget(self.i_mod,0,2)
         fm.addWidget(QLabel("X"),1,0); fm.addWidget(self.i_x,1,1); fm.addWidget(QLabel("Y"),1,2); fm.addWidget(self.i_y,1,3)
         fm.addWidget(QLabel("Deg"),2,0); fm.addWidget(self.i_mn,2,1); fm.addWidget(QLabel("FOV"),2,2); fm.addWidget(self.i_fv,2,3)
         fm.addWidget(QLabel("Rng"),3,0); fm.addWidget(self.i_rg,3,1); fm.addWidget(QLabel("Dia"),3,2); fm.addWidget(self.i_dia,3,3)
+        fm.addWidget(self.i_flp, 4, 0, 1, 4)
         
-        bu=QPushButton("Apply Sensor"); bu.setStyleSheet("background:#0D47A1;font-weight:bold;padding:6px"); bu.clicked.connect(self.sav); rv.addLayout(fm); rv.addWidget(bu); rv.addStretch()
+        bu=QPushButton("Apply Sensor"); bu.setStyleSheet("background:#223A5E;font-weight:bold;padding:6px"); bu.clicked.connect(self.sav); rv.addLayout(fm); rv.addWidget(bu); rv.addStretch()
         
         rv.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
         rv.addWidget(QLabel("<b>Geometry Loader</b>"))
         for k in ['FootPrint','L1','L2']:
             hb=QHBoxLayout()
             b=QPushButton(f"Load {k}"); b.clicked.connect(lambda _,x=k: self.load_sh(x))
-            b.setStyleSheet("background:#0D47A1;font-weight:bold;color:white;padding:4px"); hb.addWidget(b)
-            c=QPushButton("Clr"); c.setFixedWidth(40); c.setStyleSheet("background:#B71C1C;font-weight:bold;color:white;padding:4px"); c.clicked.connect(lambda _,x=k: self.clear_sh(x))
+            b.setStyleSheet("background:#223A5E;font-weight:bold;color:white;padding:4px"); hb.addWidget(b)
+            c=QPushButton("Clr"); c.setFixedWidth(40); c.setStyleSheet("background:#662222;font-weight:bold;color:white;padding:4px"); c.clicked.connect(lambda _,x=k: self.clear_sh(x))
             hb.addWidget(c); rv.addLayout(hb)
         
         rv.addSpacing(20)
         rv.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
         gc=QHBoxLayout(); be=QPushButton("Export Config"); bi=QPushButton("Import Config")
-        be.setStyleSheet("background:#4A148C;font-weight:bold;padding:5px"); bi.setStyleSheet("background:#4A148C;font-weight:bold;padding:5px")
+        be.setStyleSheet("background:#3E2754;font-weight:bold;padding:5px"); bi.setStyleSheet("background:#3E2754;font-weight:bold;padding:5px")
         be.clicked.connect(self.exp_conf); bi.clicked.connect(self.imp_conf)
         gc.addWidget(be); gc.addWidget(bi); rv.addLayout(gc)
         rv.addStretch(); l.addWidget(r)
         
         self.polys={'FootPrint':[],'L1':[],'L2':[]}
-        self.sens=[{'name':'Main','x':0.45,'y':0,'mount':0,'fov':270,'r':10.0}]
+        self.sens=[{'name':'Main','model':'nanoScan3','x':0.45,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15,'flipped':False}]
         self.upl(); QTimer.singleShot(100, lambda: self.view.centerOn(0,0))
     
     def load_sh(self, k): 
@@ -655,11 +664,15 @@ class EditorTab(QWidget):
     def upl(self): 
         self.lst.clear(); [self.lst.addItem(s['name']) for s in self.sens]; self.scn.update_sensors(self.sens)
     def ld(self, r): 
-        if r>=0: d=self.sens[r]; self.i_nm.setText(d['name']); self.i_x.setText(str(d['x'])); self.i_y.setText(str(d['y'])); self.i_mn.setText(str(d['mount'])); self.i_fv.setText(str(d['fov'])); self.i_rg.setText(str(d['r'])); self.i_dia.setText(str(d.get('dia', 0.15)))
+        if r>=0: 
+            d=self.sens[r]; self.i_nm.setText(d['name']); self.i_mod.setCurrentText(d.get('model','nanoScan3'))
+            self.i_x.setText(str(d['x'])); self.i_y.setText(str(d['y'])); self.i_mn.setText(str(d['mount']))
+            self.i_fv.setText(str(d['fov'])); self.i_rg.setText(str(d['r'])); self.i_dia.setText(str(d.get('dia', 0.15)))
+            self.i_flp.setChecked(d.get('flipped', False))
     def sav(self):
         r=self.lst.currentRow()
-        if r>=0: self.sens[r]={'name':self.i_nm.text(),'x':float(self.i_x.text()),'y':float(self.i_y.text()),'mount':float(self.i_mn.text()),'fov':float(self.i_fv.text()),'r':float(self.i_rg.text()),'dia':float(self.i_dia.text())}; self.upl()
-    def add(self): self.sens.append({'name':'New','x':0,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15}); self.upl()
+        if r>=0: self.sens[r]={'name':self.i_nm.text(),'model':self.i_mod.currentText(),'x':float(self.i_x.text()),'y':float(self.i_y.text()),'mount':float(self.i_mn.text()),'fov':float(self.i_fv.text()),'r':float(self.i_rg.text()),'dia':float(self.i_dia.text()),'flipped':self.i_flp.isChecked()}; self.upl()
+    def add(self): self.sens.append({'name':'New','model':'nanoScan3','x':0,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15,'flipped':False}); self.upl()
     def dele(self):
         if self.lst.currentRow() >= 0:
             del self.sens[self.lst.currentRow()]
@@ -833,14 +846,6 @@ class GenTab(QWidget):
                 gl2.addWidget(chk, 0, i+1)
                 self.gen_inputs[c] = {'en': chk}
         
-        # Rows configuration
-        rows = [
-            ("Count", "cnt", "6"), ("Max V", "v", "1.2"), ("Max W", "w", "30.0"),
-            ("Shadow", "sh", True), ("Inc Shape", "inc", True),
-            ("Fwd Linear", "fwd", True), ("Curve Turn", "turn", True),
-            ("Inplace", "ip", True), ("Patch Notches", "notch", True)
-        ]
-        
         def get_def(c, k, d):
             if c=='NoLoad':
                 if k in ['sh','inc']: return False
@@ -850,22 +855,51 @@ class GenTab(QWidget):
             if c=='Load2': return "0.8" if k=='v' else ("15.0" if k=='w' else d)
             return d
 
-        for r, (lbl, key, default_val) in enumerate(rows):
-            gl2.addWidget(QLabel(lbl), r+1, 0)
+        # 1. General Params
+        gen_rows = [
+            ("Count", "cnt", "6"), ("Max V", "v", "1.2"), ("Max W", "w", "30.0"),
+            ("Shadow", "sh", True), ("Inc Shape", "inc", True), ("Patch Notches", "notch", True)
+        ]
+        
+        curr_r = 1
+        for lbl, key, default_val in gen_rows:
+            gl2.addWidget(QLabel(lbl), curr_r, 0)
             for c_idx, c in enumerate(cols):
                 val = get_def(c, key, default_val)
                 if isinstance(val, bool): 
                     w = QCheckBox(); w.setChecked(val)
                     w.setStyleSheet("QCheckBox::indicator { width: 15px; height: 15px; }")
                 else: w = QLineEdit(str(val))
-                gl2.addWidget(w, r+1, c_idx+1)
+                gl2.addWidget(w, curr_r, c_idx+1)
                 self.gen_inputs[c][key] = w
+            curr_r += 1
+
+        # 2. Motion Params Sub-section
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine); sep.setFrameShadow(QFrame.Shadow.Sunken)
+        gl2.addWidget(sep, curr_r, 0, 1, 4); curr_r += 1
+        
+        hb_mot = QHBoxLayout(); hb_mot.addWidget(QLabel("<b>Motions</b>")); hb_mot.addStretch()
+        self.chk_sync = QCheckBox("Sync"); self.chk_sync.setChecked(True); hb_mot.addWidget(self.chk_sync)
+        gl2.addLayout(hb_mot, curr_r, 0, 1, 4); curr_r += 1
+
+        mot_rows = [("Fwd Linear", "fwd", True), ("Curve Turn", "turn", True), ("Inplace", "ip", True)]
+        
+        for lbl, key, default_val in mot_rows:
+            gl2.addWidget(QLabel(lbl), curr_r, 0)
+            for c_idx, c in enumerate(cols):
+                val = get_def(c, key, default_val)
+                w = QCheckBox(); w.setChecked(val)
+                w.setStyleSheet("QCheckBox::indicator { width: 15px; height: 15px; }")
+                w.clicked.connect(lambda s, k=key: self.sync_bool(k, s))
+                gl2.addWidget(w, curr_r, c_idx+1)
+                self.gen_inputs[c][key] = w
+            curr_r += 1
 
         bg=QPushButton("Populate Table"); bg.clicked.connect(self.pop)
-        bg.setStyleSheet("background:#0D47A1;font-weight:bold;padding:5px")
-        gl2.addWidget(bg, len(rows)+1, 0, 1, 4); fl.addWidget(gi)
+        bg.setStyleSheet("background:#223A5E;font-weight:bold;padding:5px")
+        gl2.addWidget(bg, curr_r, 0, 1, 4); fl.addWidget(gi)
         
-        xb=QPushButton("EXECUTE BATCH"); xb.setStyleSheet("background:#1B5E20;color:white;font-weight:bold;height:45px")
+        xb=QPushButton("EXECUTE BATCH"); xb.setStyleSheet("background:#224A25;color:white;font-weight:bold;height:45px")
         xb.clicked.connect(self.exe); fl.addWidget(xb); fl.addStretch(); l.addWidget(f)
         
         # Table
@@ -875,9 +909,14 @@ class GenTab(QWidget):
         rhl.addWidget(self.tbl)
         
         tb=QHBoxLayout(); b1=QPushButton("Add Case"); b2=QPushButton("Remove Case"); b3=QPushButton("Import Field DXF"); b4=QPushButton("Clear Field DXF")
-        b1.setStyleSheet("background:#1B5E20;font-weight:bold"); b2.setStyleSheet("background:#B71C1C;font-weight:bold"); b3.setStyleSheet("background:#0D47A1;font-weight:bold"); b4.setStyleSheet("background:#B71C1C;font-weight:bold")
+        b1.setStyleSheet("background:#224A25;font-weight:bold"); b2.setStyleSheet("background:#662222;font-weight:bold"); b3.setStyleSheet("background:#223A5E;font-weight:bold"); b4.setStyleSheet("background:#662222;font-weight:bold")
         b1.clicked.connect(self.add_case); b2.clicked.connect(self.del_case); b3.clicked.connect(self.imp_field); b4.clicked.connect(self.clr_field)
         tb.addWidget(b1); tb.addWidget(b2); tb.addWidget(b3); tb.addWidget(b4); rhl.addLayout(tb); l.addWidget(rhs)
+        
+        # Connections for Auto-Distribution
+        self.main.ed.i_max_fields.textChanged.connect(self.update_distribution)
+        for c in ['Load1', 'Load2']: self.gen_inputs[c]['en'].toggled.connect(self.update_distribution)
+        self.update_distribution()
     
     def mk(self,l,t,v,r): l.addWidget(QLabel(t),r,0); e=QLineEdit(str(v)); l.addWidget(e,r,1); return e
     
@@ -894,6 +933,25 @@ class GenTab(QWidget):
             return QPixmap.fromImage(QImage(buf, w, h, QImage.Format.Format_RGBA8888))
         except: return None
     
+    def sync_bool(self, key, state):
+        if not self.chk_sync.isChecked(): return
+        for c in ['NoLoad', 'Load1', 'Load2']:
+            w = self.gen_inputs[c].get(key)
+            if w:
+                w.blockSignals(True); w.setChecked(state); w.blockSignals(False)
+
+    def update_distribution(self):
+        try:
+            mx = int(self.main.ed.i_max_fields.text())
+        except: return
+        
+        active = ['NoLoad']
+        if self.gen_inputs['Load1']['en'].isChecked(): active.append('Load1')
+        if self.gen_inputs['Load2']['en'].isChecked(): active.append('Load2')
+        
+        cnt = mx // len(active)
+        for c in active: self.gen_inputs[c]['cnt'].setText(str(cnt))
+
     def pop(self):
         try:
             self.tbl.setRowCount(0); idx=1
@@ -1012,15 +1070,17 @@ class ResultsTab(QWidget):
             cmb.setMinimumHeight(40); cmb.setFont(QFont("Arial", 12))
             cmb.setStyleSheet("background-color: #36404A; color: white; font-weight: bold;")
             chk_ed = QCheckBox("Edit Poly")
+            chk_arc = QCheckBox("Show Arc"); chk_arc.setChecked(k != 'Misc')
             if items:
                 for l in items[0]['lidars']: cmb.addItem(f"Lidar: {l['name']}")
             
             mid=QWidget(); ml=QVBoxLayout(mid); ml.setContentsMargins(0,0,0,0)
             
             chk_lidar = QCheckBox("Show Wrt Lidar"); chk_lidar.setVisible(False)
-            ml.addWidget(cmb); ml.addWidget(chk_lidar); ml.addWidget(chk_ed); ml.addWidget(view)
+            hb = QHBoxLayout(); hb.addWidget(chk_lidar); hb.addWidget(chk_ed); hb.addWidget(chk_arc); hb.addStretch()
+            ml.addWidget(cmb); ml.addLayout(hb); ml.addWidget(view)
             
-            def on_sel(row=None, items=items, scn=scn, txt=txt, cmb=cmb, ls=ls, chk=chk_ed, chk_l=chk_lidar):
+            def on_sel(row=None, items=items, scn=scn, txt=txt, cmb=cmb, ls=ls, chk=chk_ed, chk_l=chk_lidar, chk_a=chk_arc):
                 if row is None: row=ls.currentRow()
                 if row<0:return
                 myself = getattr(ls, 'on_sel_ref', None)
@@ -1165,7 +1225,7 @@ class ResultsTab(QWidget):
                                  scn.addItem(EditHandle(v[k].x(), v[k].y(), pi, k, cb))
                      
                      # Safety Distance Arc & Dot
-                     if 'traj' in d and len(d['traj']) > 0:
+                     if 'traj' in d and len(d['traj']) > 0 and chk_a.isChecked():
                          path = QPainterPath()
                          t_pts = d['traj']
                          tf = tf_pts([p[:2] for p in t_pts])
@@ -1176,7 +1236,7 @@ class ResultsTab(QWidget):
                          last = tf[-1]
                          dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("blue"))); dot.setZValue(16)
                      
-                     if 'front_traj' in d and len(d['front_traj']) > 0:
+                     if 'front_traj' in d and len(d['front_traj']) > 0 and chk_a.isChecked():
                          path = QPainterPath()
                          t_pts = d['front_traj']
                          tf = tf_pts(t_pts)
@@ -1232,11 +1292,262 @@ class ResultsTab(QWidget):
             cmb.currentIndexChanged.connect(lambda _, f=on_sel: f())
             chk_ed.toggled.connect(lambda _, f=on_sel: f())
             chk_lidar.toggled.connect(lambda _, f=on_sel: f())
+            chk_arc.toggled.connect(lambda _, f=on_sel: f())
             if ls.count()>0: ls.setCurrentRow(0)
             h.addWidget(ls); h.addWidget(mid, 1); h.addWidget(txt); self.tabs.addTab(w, k)
 
 # =====================================================================
-# 7. TAB 4: HELP
+# 7. TAB 4: HARDWARE EXPORT
+# =====================================================================
+class HardwareExportTab(QWidget):
+    def __init__(self, main):
+        super().__init__(); self.main=main; l=QVBoxLayout(self)
+        l.addWidget(QLabel("<h2>Hardware Export</h2>"))
+        
+        self.tbl=QTableWidget(0,2); self.tbl.setHorizontalHeaderLabels(["Lidar Name", "Export Config"])
+        self.tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl.setFixedHeight(120)
+        l.addWidget(self.tbl)
+        
+        # Fieldsets Configuration
+        gb = QGroupBox("Fieldsets Configuration"); gl = QHBoxLayout(gb)
+        
+        # Left: Fieldsets List
+        ll = QVBoxLayout()
+        ll.addWidget(QLabel("Fieldsets"))
+        
+        self.fs_list = QListWidget(); self.fs_list.currentRowChanged.connect(self.sel_fs)
+        ll.addWidget(self.fs_list)
+        
+        # Left Buttons
+        lb = QHBoxLayout()
+        ba=QPushButton("Add Set"); bd=QPushButton("Del Set")
+        # Ensure styles are specific and force visibility
+        btn_style_add = "QPushButton { background-color: #224A25; color: white; font-weight: bold; min-width: 60px; min-height: 25px; border: 1px solid #111; border-radius: 3px; }"
+        btn_style_del = "QPushButton { background-color: #662222; color: white; font-weight: bold; min-width: 60px; min-height: 25px; border: 1px solid #111; border-radius: 3px; }"
+        
+        ba.setStyleSheet(btn_style_add)
+        bd.setStyleSheet(btn_style_del)
+        
+        ba.clicked.connect(self.add_fs); bd.clicked.connect(self.del_fs)
+        lb.addWidget(ba); lb.addWidget(bd)
+        
+        # --- FIX: Add the button layout to the vertical column layout ---
+        ll.addLayout(lb) 
+        gl.addLayout(ll, 1)       
+
+        # Right: Fields in Set
+        rl = QVBoxLayout()
+
+        fields_label = QLabel("Fields in Set")
+        font = QFont(); font.setBold(True)
+        fields_label.setFont(font)
+        rl.addWidget(fields_label)
+
+        self.f_tbl = QTableWidget(0, 2); self.f_tbl.setHorizontalHeaderLabels(["Field Name", "Source Case"])
+        self.f_tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.f_tbl.itemChanged.connect(self.f_name_chg)
+        rl.addWidget(self.f_tbl)
+        
+        # Right Buttons
+        rb = QHBoxLayout()
+        ra=QPushButton("Add Field"); rd=QPushButton("Del Field")
+        ra.clicked.connect(self.add_f); rd.clicked.connect(self.del_f)
+        
+        ra.setStyleSheet(btn_style_add)
+        rd.setStyleSheet(btn_style_del)
+
+        rb.addWidget(ra); rb.addWidget(rd)
+        
+        # --- FIX: Add the button layout to the vertical column layout ---
+        rl.addLayout(rb)
+        gl.addLayout(rl, 2)
+        
+        l.addWidget(gb)
+        
+        # Max Fields in Fieldset
+        hmx = QHBoxLayout(); hmx.addWidget(QLabel("Max Fields in Fieldset:"))
+        self.i_max_fields = QLineEdit("10")       
+        hmx.addWidget(self.i_max_fields); l.addLayout(hmx)
+
+        bl = QHBoxLayout()
+        self.btn_autogen = QPushButton("Auto-Gen Fieldsets")
+        self.btn_autogen.clicked.connect(self.auto_gen_fieldsets)
+        self.btn_autogen.setStyleSheet("QPushButton { background:#224A25; font-weight:bold; padding:8px; color: white; }")
+        self.btn_autogen.setEnabled(False)
+        bl.addWidget(self.btn_autogen)
+        
+        self.btn_temp = QPushButton("Load Template"); self.btn_temp.clicked.connect(self.load_temp)
+        self.btn_temp.setStyleSheet("QPushButton { background:#3E2754; font-weight:bold; padding:8px; color: white; }")
+        bl.addWidget(self.btn_temp)
+        
+        b=QPushButton("Refresh List"); b.clicked.connect(self.load_data)       
+        b.setStyleSheet("QPushButton { background:#223A5E; font-weight:bold; padding:8px; color: white; }"); bl.addWidget(b)
+        l.addLayout(bl)
+        
+        self.fieldsets = []
+        self.xml_temp = None
+
+    def showEvent(self, ev):
+        self.load_data()
+        super().showEvent(ev)
+
+    def load_data(self):
+        self.tbl.setRowCount(0); sens=self.main.ed.get_s()
+        for i, s in enumerate(sens):
+            self.tbl.insertRow(i)
+            self.tbl.setItem(i,0,QTableWidgetItem(str(s['name'])))
+            
+            btn = QPushButton("Export XML"); btn.setStyleSheet("background:#3E2754;font-weight:bold")
+            btn.clicked.connect(lambda _, idx=i: self.export_xml(idx))
+            self.tbl.setCellWidget(i, 1, btn)
+            
+        # Check eligibility for Auto-Gen
+        res = getattr(self.main, 'sim_results', [])
+        groups = {'NoLoad': [], 'Load1': [], 'Load2': []}
+        for r in res:
+            if r['load'] in groups: groups[r['load']].append(r)
+        active_counts = [len(g) for g in groups.values() if len(g) > 0]
+        is_valid = len(active_counts) > 0 and all(c == active_counts[0] for c in active_counts)
+        self.btn_autogen.setEnabled(is_valid)
+        self.btn_autogen.setToolTip("Requires equal number of cases for all active load types." if not is_valid else "")
+
+    # --- Fieldset Management ---
+    def add_fs(self):
+        self.fieldsets.append({'name': f"Set {len(self.fieldsets)+1}", 'fields': []})
+        self.refresh_fs()
+    def del_fs(self):
+        r = self.fs_list.currentRow()
+        if r >= 0: del self.fieldsets[r]; self.refresh_fs(); self.f_tbl.setRowCount(0)
+    def refresh_fs(self):
+        self.fs_list.clear()
+        for f in self.fieldsets:
+             it = QListWidgetItem(f['name'])
+             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsEditable)
+             self.fs_list.addItem(it)
+    
+    def sel_fs(self, r):
+        if r < 0: return
+        self.f_tbl.blockSignals(True)
+        self.f_tbl.setRowCount(0)
+
+
+        fs = self.fieldsets[r]
+        cases = [res['desc'] for res in getattr(self.main, 'sim_results', [])]
+        
+        for i, f in enumerate(fs['fields']):
+            self.f_tbl.insertRow(i)
+            self.f_tbl.setItem(i, 0, QTableWidgetItem(f['name']))
+            cb = QComboBox(); cb.addItems(cases); cb.setCurrentText(f['case'])
+            cb.currentTextChanged.connect(lambda txt, idx=i, f_idx=r: self.upd_case(f_idx, idx, txt))
+            self.f_tbl.setCellWidget(i, 1, cb)
+        self.f_tbl.blockSignals(False)
+
+    def add_f(self):
+        r = self.fs_list.currentRow(); mx=int(self.i_max_fields.text())
+        if r < 0: return
+        if len(self.fieldsets[r]['fields'])>=mx: return
+        next_num = len(self.fieldsets[r]['fields']) + 1
+        self.fieldsets[r]['fields'].append({'name': f'Field{next_num}', 'case': ''})
+        self.sel_fs(r)
+    def del_f(self):
+        r = self.fs_list.currentRow(); fr = self.f_tbl.currentRow()
+        if r >= 0 and fr >= 0: del self.fieldsets[r]['fields'][fr]; self.sel_fs(r)
+    
+    def f_name_chg(self, item):
+        r = self.fs_list.currentRow()
+        if r >= 0 and item.column() == 0:
+            fs = self.fieldsets[r]          
+            # Update fieldset name
+            fs['name'] = item.text()
+        fr = item.row()
+        if r >= 0 and fr >= 0 and item.column() == 1:
+            self.fieldsets[r]['fields'][fr]['name'] = item.text()
+    
+    def upd_case(self, fs_idx, f_idx, txt):
+        self.fieldsets[fs_idx]['fields'][f_idx]['case'] = txt
+
+    def auto_gen_fieldsets(self):
+        res = getattr(self.main, 'sim_results', [])
+        groups = {'NoLoad': [], 'Load1': [], 'Load2': []}
+        for r in res:
+            if r['load'] in groups: groups[r['load']].append(r)
+        
+        order = ['NoLoad', 'Load1', 'Load2']
+        active_keys = [k for k in order if len(groups[k]) > 0]
+        if not active_keys: return
+        
+        count = len(groups[active_keys[0]])
+        self.fieldsets = []
+        for i in range(count):
+            fs_name = f"Set {i+1}"
+            fields = []
+            for idx, k in enumerate(active_keys):
+                fields.append({'name': f'Field{idx+1}', 'case': groups[k][i]['desc']})
+            self.fieldsets.append({'name': fs_name, 'fields': fields})
+        self.refresh_fs(); self.f_tbl.setRowCount(0)
+        QMessageBox.information(self, "Auto-Gen", f"Generated {count} fieldsets.")
+
+    def load_temp(self):
+        f,_=QFileDialog.getOpenFileName(self,"Load Template","","XML (*.xml *.sdxml)")
+        if f: self.xml_temp=f; QMessageBox.information(self,"OK",f"Template loaded:\n{f}")
+
+    def export_xml(self, idx):
+        if not self.xml_temp: QMessageBox.warning(self,"Err","Please load an XML template first!"); return
+        s = self.main.ed.get_s()[idx]
+        f, _ = QFileDialog.getSaveFileName(self, f"Export {s['name']}", f"{s['name']}.sdxml", "SICK Data XML (*.sdxml)")
+        if not f: return
+        
+        try:
+            tree = ET.parse(self.xml_temp); root = tree.getroot()
+            
+            # 1. Update Device (Pos/Ori)
+            devs = root.find('Devices')
+            if devs:
+                d = devs.find('Device') # Edit first device found
+                if d is not None:
+                    d.set('PositionX', str(int(s['x'] * 1000)))
+                    d.set('PositionY', str(int(s['y'] * 1000)))
+                    d.set('Rotation', str(s['mount'] % 360))
+                    d.set('StandingUpsideDown', "true" if s.get('flipped', False) else "false")
+            
+            # 2. Update Fieldsets
+            fs_node = root.find('Fieldsets')
+            if fs_node is None: fs_node = ET.SubElement(root, 'Fieldsets')
+            else:
+                for c in list(fs_node): fs_node.remove(c)
+            
+            sim_res = getattr(self.main, 'sim_results', [])
+            for fs in self.fieldsets:
+                x_fs = ET.SubElement(fs_node, 'Fieldset'); x_fs.set('Name', fs['name'])
+                for fld in fs['fields']:
+                    x_f = ET.SubElement(x_fs, 'Field')
+                    x_f.set('Name', fld['name'])
+                    # Default attrs
+                    for k,v in {'Fieldtype':'ProtectiveSafeBlanking', 'MultipleSampling':'2', 'Resolution':'70', 'TolerancePositive':'0', 'ToleranceNegative':'0'}.items():
+                        x_f.set(k,v)
+                    
+                    case_data = next((r for r in sim_res if r['desc'] == fld['case']), None)
+                    if case_data:
+                        lid_data = next((l for l in case_data['lidars'] if l['name'] == s['name']), None)
+                        if lid_data and not lid_data['clip'].is_empty:
+                            geoms = lid_data['clip'].geoms if hasattr(lid_data['clip'], 'geoms') else [lid_data['clip']]
+                            lx, ly = s['x'], s['y']
+                            for g in geoms:
+                                if g.geom_type == 'Polygon':
+                                    x_p = ET.SubElement(x_f, 'Polygon'); x_p.set('Type', 'Field')
+                                    pts = list(g.exterior.coords)
+                                    if len(pts) > 1 and pts[0] == pts[-1]: pts.pop()
+                                    for pt in pts:
+                                        if math.hypot(pt[0]-lx, pt[1]-ly) > 0.001:
+                                            ET.SubElement(x_p, 'Point', {'X':str(int(pt[0]*1000)), 'Y':str(int(pt[1]*1000))})
+            
+            tree.write(f, encoding='utf-8', xml_declaration=True)
+            QMessageBox.information(self, "Success", "Exported.")
+        except Exception as e: QMessageBox.critical(self, "Error", str(e))
+
+# =====================================================================
+# 8. TAB 5: HELP
 # =====================================================================
 class HelpTab(QWidget):
     def __init__(self):
@@ -1289,9 +1600,16 @@ class HelpTab(QWidget):
         <h3 style='color:#2196F3'>3. Results Tab</h3>
         <ul>
             <li><b>View:</b> Inspect the generated Global Safety Field (Yellow).</li>
-            <li><b>Sensors:</b> See how the field is clipped per sensor (Cyan/Magenta/Lime).</li>
-            <li><b>Check:</b> Verify the safety distance arc (Cyan Dash) matches the field boundary.</li>
+            <li><b>Sensors:</b> See how the field is clipped per sensor (Cyan/Magenta/Lime). Toggle <b>Show Wrt Lidar</b> to see the field in the sensor's coordinate frame.</li>
+            <li><b>Check:</b> Verify the safety distance arc (Cyan Dash). Use <b>Show Arc</b> to toggle visibility.</li>
             <li><b>Edit:</b> Enable 'Edit Poly' to manually adjust field vertices.</li>
+        </ul>
+        
+        <h3 style='color:#2196F3'>4. Hardware Export Tab</h3>
+        <ul>
+            <li><b>Fieldsets:</b> Organize fields into sets (e.g., Set 1, Set 2).</li>
+            <li><b>Auto-Gen:</b> Automatically generate fieldsets based on load cases (NoLoad, Load1, Load2).</li>
+            <li><b>Export:</b> Export the configuration to SICK XML format (.sdxml) for import into Safety Designer. Requires a template XML.</li>
         </ul>
         """)
         l.addWidget(t)
@@ -1302,8 +1620,9 @@ class HelpTab(QWidget):
 class App(QMainWindow):
     def __init__(self):
         super().__init__(); self.resize(1400,900); self.setWindowTitle("Safety Studio V" + VERSION)
-        self.t=QTabWidget(); self.ed=EditorTab(self); self.gn=GenTab(self); self.rs=ResultsTab(); self.hl=HelpTab()
-        self.t.addTab(self.ed,"Editor"); self.t.addTab(self.gn,"Gen"); self.t.addTab(self.rs,"Result"); self.t.addTab(self.hl,"Help")
+        self.sim_results = []
+        self.t=QTabWidget(); self.ed=EditorTab(self); self.gn=GenTab(self); self.rs=ResultsTab(); self.hw=HardwareExportTab(self); self.hl=HelpTab()
+        self.t.addTab(self.ed,"Editor"); self.t.addTab(self.gn,"Gen"); self.t.addTab(self.rs,"Result"); self.t.addTab(self.hw,"Hardware Export"); self.t.addTab(self.hl,"Help")
         self.setCentralWidget(self.t)
 
     def run_sim(self):
@@ -1350,7 +1669,7 @@ class App(QMainWindow):
                 
                 res.append({'desc':f"{ltype} {v} {w}", 'load':ltype, 'global':gf, 'lidars':lid, 'base':bpoly, 'steps':stp, 'load_poly':lp, 'traj':trj, 'dist_d':val_d, 'front_traj':ftrj, 'ignored_poly':ign})
             except:pass
-        self.rs.render(res); self.t.setCurrentIndex(2)
+        self.sim_results = res; self.rs.render(res); self.t.setCurrentIndex(2)
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal.SIG_DFL)
