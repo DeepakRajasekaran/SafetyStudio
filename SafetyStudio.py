@@ -17,13 +17,13 @@ from PyQt6.QtWidgets import (
     QGraphicsTextItem, QGridLayout, QTabWidget, QDialog, QRadioButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel, 
     QLineEdit, QGroupBox, QMessageBox, QListWidget, QListWidgetItem, QTextEdit, QFrame, 
-    QFileDialog, QScrollArea, QToolButton, QCheckBox, QComboBox
+    QFileDialog, QScrollArea, QToolButton, QCheckBox, QComboBox, QAbstractItemView
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
-from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath, QPixmap, QImage
+from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath, QPixmap, QImage, QKeySequence, QShortcut
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -604,7 +604,7 @@ class EditorTab(QWidget):
         # Right Config
         r=QFrame(); r.setFixedWidth(300); rv=QVBoxLayout(r)
         
-        hb_mx = QHBoxLayout(); hb_mx.addWidget(QLabel("Max Fields/Lidar:")); self.i_max_fields = QLineEdit("128")
+        hb_mx = QHBoxLayout(); hb_mx.addWidget(QLabel("Max Fields/Lidar:")); self.i_max_fields = QLineEdit("48")
         hb_mx.addWidget(self.i_max_fields); rv.addLayout(hb_mx)
         
         rv.addWidget(QLabel("<b>LiDAR Manager</b>"))
@@ -673,7 +673,20 @@ class EditorTab(QWidget):
             self.i_flp.setChecked(d.get('flipped', False))
     def sav(self):
         r=self.lst.currentRow()
-        if r>=0: self.sens[r]={'name':self.i_nm.text(),'model':self.i_mod.currentText(),'x':float(self.i_x.text()),'y':float(self.i_y.text()),'mount':float(self.i_mn.text()),'fov':float(self.i_fv.text()),'r':float(self.i_rg.text()),'dia':float(self.i_dia.text()),'flipped':self.i_flp.isChecked()}; self.upl()
+        if r>=0:
+            try:
+                nm=self.i_nm.text(); mod=self.i_mod.currentText()
+                x=float(self.i_x.text()); y=float(self.i_y.text())
+                mn=float(self.i_mn.text()); fv=float(self.i_fv.text())
+                rg=float(self.i_rg.text()); dia=float(self.i_dia.text())
+                flp=self.i_flp.isChecked()
+            except: QMessageBox.warning(self,"Input Error","Invalid numeric input"); return
+            
+            for i, s in enumerate(self.sens):
+                if i == r: continue
+                d_sep = math.hypot(s['x']-x, s['y']-y); min_sep = (s.get('dia',0.15) + dia)/2.0
+                if d_sep < min_sep: QMessageBox.critical(self, "Placement Error", f"Sensor '{nm}' overlaps with '{s['name']}'!\nDistance: {d_sep:.3f}m < Required: {min_sep:.3f}m"); return
+            self.sens[r]={'name':nm,'model':mod,'x':x,'y':y,'mount':mn,'fov':fv,'r':rg,'dia':dia,'flipped':flp}; self.upl()
     def add(self): self.sens.append({'name':'New','model':'nanoScan3','x':0,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15,'flipped':False}); self.upl()
     def dele(self):
         if self.lst.currentRow() >= 0:
@@ -852,14 +865,14 @@ class GenTab(QWidget):
             if c=='NoLoad':
                 if k in ['sh','inc']: return False
                 if k=='v': return "1.2"
-                if k=='w': return "30.0"
-            if c=='Load1': return "1.0" if k=='v' else ("20.0" if k=='w' else d)
-            if c=='Load2': return "0.8" if k=='v' else ("15.0" if k=='w' else d)
+                if k=='w': return "0.6"
+            if c=='Load1': return "1.0" if k=='v' else ("0.4" if k=='w' else d)
+            if c=='Load2': return "0.8" if k=='v' else ("0.3" if k=='w' else d)
             return d
 
         # 1. General Params
         gen_rows = [
-            ("Count", "cnt", "6"), ("Max V", "v", "1.2"), ("Max W", "w", "30.0"),
+            ("Count", "cnt", "6"), ("Max V (m/s)", "v", "1.2"), ("Max W (rad/s)", "w", "0.6"),
             ("Shadow", "sh", True), ("Inc Shape", "inc", True), ("Patch Notches", "notch", True)
         ]
         
@@ -906,14 +919,18 @@ class GenTab(QWidget):
         
         # Table
         rhs=QWidget(); rhl=QVBoxLayout(rhs); rhl.setContentsMargins(0,0,0,0)
-        self.tbl=QTableWidget(0,5); self.tbl.setHorizontalHeaderLabels(["ID","Load","Vel","W(deg)","Custom Field"])
+        self.tbl=QTableWidget(0,5); self.tbl.setHorizontalHeaderLabels(["ID","Load","Vel","W(rad/s)","Custom Field"])
         self.tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self.tbl, self.del_case, context=Qt.ShortcutContext.WidgetShortcut)
+        self.tbl.cellClicked.connect(self.on_cell_clicked)
         rhl.addWidget(self.tbl)
         
-        tb=QHBoxLayout(); b1=QPushButton("Add Case"); b2=QPushButton("Remove Case"); b3=QPushButton("Import Field DXF"); b4=QPushButton("Clear Field DXF")
-        b1.setStyleSheet("background:#224A25;font-weight:bold"); b2.setStyleSheet("background:#662222;font-weight:bold"); b3.setStyleSheet("background:#223A5E;font-weight:bold"); b4.setStyleSheet("background:#662222;font-weight:bold")
-        b1.clicked.connect(self.add_case); b2.clicked.connect(self.del_case); b3.clicked.connect(self.imp_field); b4.clicked.connect(self.clr_field)
-        tb.addWidget(b1); tb.addWidget(b2); tb.addWidget(b3); tb.addWidget(b4); rhl.addLayout(tb); l.addWidget(rhs)
+        tb=QHBoxLayout(); b1=QPushButton("Add Case"); b2=QPushButton("Remove Case"); b4=QPushButton("Clear Field DXF")
+        b1.setStyleSheet("background:#224A25;font-weight:bold"); b2.setStyleSheet("background:#662222;font-weight:bold"); b4.setStyleSheet("background:#662222;font-weight:bold")
+        b1.clicked.connect(self.add_case); b2.clicked.connect(self.del_case); b4.clicked.connect(self.clr_field)
+        tb.addWidget(b1); tb.addWidget(b2); tb.addWidget(b4); rhl.addLayout(tb); l.addWidget(rhs)
         
         # Connections for Auto-Distribution
         self.main.ed.i_max_fields.textChanged.connect(self.update_distribution)
@@ -1000,7 +1017,7 @@ class GenTab(QWidget):
         self.tbl.setItem(r,0,QTableWidgetItem(str(i)))
         self.tbl.setItem(r,1,QTableWidgetItem(l))
         self.tbl.setItem(r,2,QTableWidgetItem(f"{v:.2f}"))
-        self.tbl.setItem(r,3,QTableWidgetItem(f"{w:.1f}"))
+        self.tbl.setItem(r,3,QTableWidgetItem(f"{w:.2f}"))
         self.tbl.setItem(r,4,QTableWidgetItem(""))
     
     def add_case(self):
@@ -1009,8 +1026,14 @@ class GenTab(QWidget):
         self.tbl.setItem(r,2,QTableWidgetItem("0.5")); self.tbl.setItem(r,3,QTableWidgetItem("0.0"))
         self.tbl.setItem(r,4,QTableWidgetItem(""))
     def del_case(self):
-        r=self.tbl.currentRow()
-        if r>=0: self.tbl.removeRow(r)
+        rows = sorted(set(index.row() for index in self.tbl.selectedIndexes()), reverse=True)
+        for r in rows: self.tbl.removeRow(r)
+    
+    def on_cell_clicked(self, row, col):
+        if col == 4: # Custom Field column
+            self.tbl.setCurrentCell(row, col) # Ensure the row is selected
+            self.imp_field()
+
     def imp_field(self):
         r=self.tbl.currentRow()
         if r<0: return
@@ -1020,8 +1043,9 @@ class GenTab(QWidget):
                 p=DxfHandler.load(f); it=QTableWidgetItem(f.replace('\\','/').split('/')[-1]); it.setData(Qt.ItemDataRole.UserRole, p); it.setToolTip(f); self.tbl.setItem(r,4,it)
             except Exception as e: QMessageBox.critical(self,"Err",str(e))
     def clr_field(self):
-        r=self.tbl.currentRow()
-        if r>=0: self.tbl.setItem(r,4,QTableWidgetItem(""))
+        rows = sorted(set(index.row() for index in self.tbl.selectedIndexes()))
+        for r in rows:
+            self.tbl.setItem(r, 4, QTableWidgetItem(""))
     
     def exe(self): self.main.run_sim()
     
@@ -1113,6 +1137,7 @@ class ResultsTab(QWidget):
                     return [QPointF(p[0]*SCALE,-p[1]*SCALE) for p in a]
                 
                 chk.setVisible(mode == "Composite")
+                chk_a.setVisible(mode == "Composite")
                 
                 lidar_gfx = []
                 def draw_dynamic_lidars():
@@ -1227,7 +1252,7 @@ class ResultsTab(QWidget):
                                  scn.addItem(EditHandle(v[k].x(), v[k].y(), pi, k, cb))
                      
                      # Safety Distance Arc & Dot
-                     if 'traj' in d and len(d['traj']) > 0 and chk_a.isChecked():
+                     if 'traj' in d and len(d['traj']) > 0 and chk_a.isChecked() and not d.get('is_custom', False):
                          path = QPainterPath()
                          t_pts = d['traj']
                          tf = tf_pts([p[:2] for p in t_pts])
@@ -1238,7 +1263,7 @@ class ResultsTab(QWidget):
                          last = tf[-1]
                          dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("blue"))); dot.setZValue(16)
                      
-                     if 'front_traj' in d and len(d['front_traj']) > 0 and chk_a.isChecked():
+                     if 'front_traj' in d and len(d['front_traj']) > 0 and chk_a.isChecked() and not d.get('is_custom', False):
                          path = QPainterPath()
                          t_pts = d['front_traj']
                          tf = tf_pts(t_pts)
@@ -1319,6 +1344,8 @@ class HardwareExportTab(QWidget):
         ll.addWidget(QLabel("Fieldsets"))
         
         self.fs_list = QListWidget(); self.fs_list.currentRowChanged.connect(self.sel_fs)
+        self.fs_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self.fs_list, self.del_fs, context=Qt.ShortcutContext.WidgetShortcut)
         ll.addWidget(self.fs_list)
         
         # Left Buttons
@@ -1348,7 +1375,10 @@ class HardwareExportTab(QWidget):
 
         self.f_tbl = QTableWidget(0, 2); self.f_tbl.setHorizontalHeaderLabels(["Field Name", "Source Case"])
         self.f_tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.f_tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.f_tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.f_tbl.itemChanged.connect(self.f_name_chg)
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self.f_tbl, self.del_f, context=Qt.ShortcutContext.WidgetShortcut)
         rl.addWidget(self.f_tbl)
         
         # Right Buttons
@@ -1404,26 +1434,19 @@ class HardwareExportTab(QWidget):
             btn.clicked.connect(lambda _, idx=i: self.export_xml(idx))
             self.tbl.setCellWidget(i, 1, btn)
             
-        # Check eligibility for Auto-Gen
-        res = getattr(self.main, 'sim_results', [])
-        groups = {'NoLoad': [], 'Load1': [], 'Load2': []}
-        has_custom = False
-        for r in res:
-            if r.get('is_custom', False): has_custom = True
-            elif r['load'] in groups: groups[r['load']].append(r)
-        active_counts = [len(g) for g in groups.values() if len(g) > 0]
-        is_sym = len(active_counts) == 0 or all(c == active_counts[0] for c in active_counts)
-        is_valid = is_sym and (len(active_counts) > 0 or has_custom)
-        self.btn_autogen.setEnabled(is_valid)
-        self.btn_autogen.setToolTip("Requires equal number of cases for all active load types." if not is_valid else "")
+        # Always enable, check constraints on click
+        self.btn_autogen.setEnabled(True)
+        self.btn_autogen.setToolTip("")
 
     # --- Fieldset Management ---
     def add_fs(self):
         self.fieldsets.append({'name': f"Set {len(self.fieldsets)+1}", 'fields': []})
         self.refresh_fs()
     def del_fs(self):
-        r = self.fs_list.currentRow()
-        if r >= 0: del self.fieldsets[r]; self.refresh_fs(); self.f_tbl.setRowCount(0)
+        rows = sorted([i.row() for i in self.fs_list.selectedIndexes()], reverse=True)
+        for r in rows:
+            if r < len(self.fieldsets): del self.fieldsets[r]
+        self.refresh_fs(); self.f_tbl.setRowCount(0)
     def refresh_fs(self):
         self.fs_list.clear()
         for f in self.fieldsets:
@@ -1456,8 +1479,12 @@ class HardwareExportTab(QWidget):
         self.fieldsets[r]['fields'].append({'name': f'Field{next_num}', 'case': ''})
         self.sel_fs(r)
     def del_f(self):
-        r = self.fs_list.currentRow(); fr = self.f_tbl.currentRow()
-        if r >= 0 and fr >= 0: del self.fieldsets[r]['fields'][fr]; self.sel_fs(r)
+        r = self.fs_list.currentRow()
+        if r < 0: return
+        rows = sorted(set(i.row() for i in self.f_tbl.selectedIndexes()), reverse=True)
+        for fr in rows:
+            if fr < len(self.fieldsets[r]['fields']): del self.fieldsets[r]['fields'][fr]
+        self.sel_fs(r)
     
     def f_name_chg(self, item):
         r = self.fs_list.currentRow()
@@ -1480,8 +1507,26 @@ class HardwareExportTab(QWidget):
             if r.get('is_custom', False): custom_list.append(r)
             elif r['load'] in groups: groups[r['load']].append(r)
         
+        # Validation
+        active_counts = {k: len(v) for k, v in groups.items() if len(v) > 0}
+        if not active_counts and not custom_list:
+             QMessageBox.warning(self, "Auto-Gen Error", "No simulation results found. Please run the simulation first."); return
+        if active_counts:
+            counts = list(active_counts.values())
+            if not all(c == counts[0] for c in counts):
+                msg = "Cannot auto-generate fieldsets due to mismatched case counts:\n"
+                for k, v in active_counts.items(): msg += f"- {k}: {v} cases\n"
+                msg += "\nAll active load types must have the same number of cases."
+                QMessageBox.critical(self, "Auto-Gen Failed", msg); return
+        
         order = ['NoLoad', 'Load1', 'Load2']
         active_keys = [k for k in order if len(groups[k]) > 0]
+        
+        try: mx = int(self.i_max_fields.text())
+        except: QMessageBox.warning(self, "Input Error", "Invalid Max Fields value."); return
+
+        if len(active_keys) > mx:
+            QMessageBox.critical(self, "Auto-Gen Failed", f"Required fields per set ({len(active_keys)}) exceeds limit ({mx}).\n(Active Loads: {', '.join(active_keys)})"); return
         
         self.fieldsets = []
         if active_keys:
@@ -1494,11 +1539,13 @@ class HardwareExportTab(QWidget):
                 self.fieldsets.append({'name': fs_name, 'fields': fields})
         
         if custom_list:
-            fs_name = "Custom Set"
-            fields = []
-            for idx, r in enumerate(custom_list):
-                fields.append({'name': f'Custom{idx+1}', 'case': r['desc']})
-            self.fieldsets.append({'name': fs_name, 'fields': fields})
+            for i in range(0, len(custom_list), mx):
+                chunk = custom_list[i:i+mx]
+                fs_name = f"Custom Set {i//mx + 1}"
+                fields = []
+                for j, r in enumerate(chunk):
+                    fields.append({'name': f'Custom{i+j+1}', 'case': r['desc']})
+                self.fieldsets.append({'name': fs_name, 'fields': fields})
         self.refresh_fs(); self.f_tbl.setRowCount(0)
         QMessageBox.information(self, "Auto-Gen", f"Generated {len(self.fieldsets)} fieldsets.")
 
@@ -1577,7 +1624,7 @@ class HelpTab(QWidget):
         <h3 style='color:#2196F3'>1. Editor Tab</h3>
         <ul>
             <li><b>Footprint:</b> Import a DXF file defining the robot's base shape. Use 'Clr' to remove.</li>
-            <li><b>Sensors:</b> Configure LiDAR placement (X,Y), Mounting Angle, FOV, Range, and <b>Diameter</b> (for self-occlusion).</li>
+            <li><b>Sensors:</b> Configure LiDAR placement (X,Y), Mounting Angle, FOV, Range, and <b>Diameter</b> (for self-occlusion). Overlapping sensors are allowed.</li>
             <li><b>Loads:</b> Load additional DXF shapes for L1/L2 configurations (e.g., pallets). Use 'Clr' to remove.</li>
             <li><b>Navigation:</b> Use the <b>Next &gt;</b> button to proceed to the Generation tab.</li>
         </ul>
@@ -1595,7 +1642,7 @@ class HelpTab(QWidget):
             <li><b>Plan Auto-Gen:</b>
                 <p>Parameters are configured per load case (NoLoad, Load1, Load2) in a grid:</p>
                 <ul>
-                    <li><b>Count, Max V, Max W:</b> Define the range and density of cases generated.</li>
+                    <li><b>Count, Max V, Max W:</b> Define the range and number of cases generated.</li>
                     <li><b>Shadow:</b> Enable/Disable shadow casting (blind spots) for the load.</li>
                     <li><b>Inc Shape:</b> Include the load geometry in the base footprint for collision checks.</li>
                     <li><b>Motion Types:</b> Select specific motions (Fwd Linear, Curve Turn, Inplace) for each load.</li>
@@ -1605,8 +1652,8 @@ class HelpTab(QWidget):
             <li><b>Manual Overrides:</b>
                 <p>Use the toolbar below the table to modify the plan:</p>
                 <ul>
-                    <li><b>Add/Remove Case:</b> Manually insert or delete simulation rows.</li>
-                    <li><b>Import Field DXF:</b> Load a custom DXF to override the auto-generated field for a specific row. Shadows are still applied if enabled.</li>
+                    <li><b>Batch Operations:</b> Multi-select rows (Shift/Ctrl+Click) to delete multiple cases at once using the 'Remove Case' button or <b>Delete</b> key.</li>
+                    <li><b>Import Field DXF:</b> Click the <b>Custom Field</b> cell to load a custom DXF override for that row. Shadows are still applied if enabled.</li>
                 </ul>
             </li>
             <li><b>Execute Batch:</b> Runs the simulation. Custom cases appear in the <b>Misc</b> tab in Results.</li>
@@ -1622,7 +1669,7 @@ class HelpTab(QWidget):
         
         <h3 style='color:#2196F3'>4. Hardware Export Tab</h3>
         <ul>
-            <li><b>Fieldsets:</b> Organize fields into sets (e.g., Set 1, Set 2).</li>
+            <li><b>Fieldsets:</b> Organize fields into sets. Supports multi-selection and <b>Delete</b> key for batch removal of sets or fields.</li>
             <li><b>Auto-Gen:</b> Automatically generate fieldsets based on load cases (NoLoad, Load1, Load2).</li>
             <li><b>Export:</b> Export the configuration to SICK XML format (.sdxml) for import into Safety Designer. Requires a template XML.</li>
         </ul>
@@ -1675,7 +1722,7 @@ class App(QMainWindow):
                 it = tbl.item(r, 4)
                 if it: ovr = it.data(Qt.ItemDataRole.UserRole)
 
-                w_in = np.radians(w) # Input is Deg
+                w_in = w # Input is rad/s
                 gf, lid, trj, stp, val_d, ftrj, ign = SafetyMath.calc_case(FootPrint, lp, sens, v, w_in, P, override_poly=ovr)
                 if gf is None: continue
                 

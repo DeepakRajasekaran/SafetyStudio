@@ -2,16 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [1.4.2]
+
+### Added
+- **Batch Operations:** Added multi-select and Delete key support to Plan Generation table, Fieldsets list, and Fields table.
+- **Editor:** Added exemption allowing overlapping LiDAR placement.
+
+### Changed
+- **Gen Tab:** Preset angular velocities updated to rad/s (0.6, 0.4, 0.3).
+- **Gen Tab:** "Import Field DXF" button removed; functionality integrated into "Custom Field" table cell click.
+- **Gen Tab:** "Clear Field DXF" now supports batch clearing.
+
 ## [1.4.1]
 
 ### Added
+
 - **Navigation:** Added "Next >" button in Editor tab for easier workflow navigation.
 
 ### Fixed
+
 - **Hardware Export:** Auto-Gen Fieldsets now correctly handles custom/manual cases by grouping them into a separate "Custom Set".
 - **UI:** Updated navigation button style.
 
 ## [1.4.0]
+
+## Added
+
+- **Hardware Export:** Added new tab for exporting hardware config directly to lidar
+
+## [1.3.0]
 
 ### Added
 
