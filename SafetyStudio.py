@@ -1,9 +1,11 @@
 import sys
 import math
 import signal
+import os
 import ezdxf
 import numpy as np
 import json
+import copy
 import xml.etree.ElementTree as ET
 from shapely.geometry import Polygon, MultiPoint, Point, MultiPolygon, LineString, GeometryCollection, MultiLineString
 from shapely import wkt
@@ -17,13 +19,14 @@ from PyQt6.QtWidgets import (
     QGraphicsTextItem, QGridLayout, QTabWidget, QDialog, QRadioButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel, 
     QLineEdit, QGroupBox, QMessageBox, QListWidget, QListWidgetItem, QTextEdit, QFrame, 
-    QFileDialog, QScrollArea, QToolButton, QCheckBox, QComboBox, QAbstractItemView
+    QFileDialog, QScrollArea, QToolButton, QCheckBox, QComboBox, QAbstractItemView,
+    QSpinBox, QStackedWidget, QDoubleSpinBox, QStyle
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath, QPixmap, QImage, QKeySequence, QShortcut
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.4.2"
+VERSION = "1.5.0"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -448,7 +451,7 @@ class SafetyMath:
                     gs=clip_indiv.geoms if clip_indiv.geom_type=='MultiPolygon' else [clip_indiv]
                     for g in gs: loc.append( (np.array(g.exterior.coords)-np.array(og)) @ R.T )
                 
-                lid_out.append({'name':s['name'], 'clip':clip_indiv, 'origin':og, 'local':loc, 'fov_poly':fov, 'shadow_poly':shadow, 'mount':s['mount']})
+                lid_out.append({'name':s['name'], 'model':s.get('model',''), 'clip':clip_indiv, 'origin':og, 'local':loc, 'fov_poly':fov, 'shadow_poly':shadow, 'mount':s['mount'], 'flipped':s.get('flipped', False)})
                 
             # Calculate Ignored Region (Kinematic Field outside Sensor FOVs)
             ignored_poly = None
@@ -587,15 +590,85 @@ class EditorScene(BaseGridScene):
             self.addItem(g); self.sitems.append(g)
             l=QGraphicsLineItem(0,0,0,-20,g); l.setPen(QPen(Qt.GlobalColor.white,2)); g.setRotation(-s['mount'])
 
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent); self.setWindowTitle("UI Settings"); l=QVBoxLayout(self)
+        l.addWidget(QLabel("Base Font Size (px):"))
+        self.sb_f=QSpinBox(); self.sb_f.setRange(8, 24); self.sb_f.setValue(16)
+        l.addWidget(self.sb_f)
+        h=QHBoxLayout()
+        br=QPushButton("Reset UI"); br.clicked.connect(self.do_reset)
+        ba=QPushButton("Apply"); ba.clicked.connect(self.accept)
+        h.addWidget(br); h.addWidget(ba); l.addLayout(h)
+        self.reset_flag = False
+    def do_reset(self): self.reset_flag = True; self.accept()
+    def get_values(self): return self.sb_f.value(), self.reset_flag
+
+class HomeTab(QWidget):
+    def __init__(self, main):
+        super().__init__(); self.main=main
+        l=QVBoxLayout(self); l.setContentsMargins(0,0,0,0)
+        
+        # Center container
+        c=QWidget(); cl=QVBoxLayout(c); cl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        t=QLabel("Safety Studio"); t.setFont(QFont("Arial", 32, QFont.Weight.Bold))
+        t.setStyleSheet("color: #eeeeee; margin-bottom: 30px;")
+        t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cl.addWidget(t)
+        
+        f=QFrame(); f.setFixedWidth(450)
+        f.setStyleSheet("""
+            QFrame { background-color: #2b2b2b; border-radius: 15px; border: 1px solid #3d3d3d; }
+            QLabel { color: #ccc; font-size: 14px; font-weight: bold; }
+            QComboBox, QSpinBox { background-color: #1e1e1e; border: 1px solid #555; border-radius: 5px; padding: 8px; color: white; font-size: 14px; }
+            QComboBox::drop-down { border: 0px; }
+            QPushButton { background-color: #224A25; color: white; border-radius: 5px; padding: 12px; font-size: 16px; font-weight: bold; }
+            QPushButton:hover { background-color: #2E6332; }
+        """)
+        
+        fl=QVBoxLayout(f); fl.setSpacing(15); fl.setContentsMargins(40,40,40,40)
+        
+        fl.addWidget(QLabel("Select LiDAR Model"))
+        self.cb_mod=QComboBox(); self.cb_mod.addItems(["Sick Nanoscan3Pro", "Leuze RSL200"])
+        self.cb_mod.setCursor(Qt.CursorShape.PointingHandCursor)
+        fl.addWidget(self.cb_mod)
+        
+        fl.addWidget(QLabel("Number of Sensors"))
+        self.sb_cnt=QSpinBox(); self.sb_cnt.setRange(1,8); self.sb_cnt.setValue(2)
+        self.sb_cnt.setCursor(Qt.CursorShape.PointingHandCursor)
+        fl.addWidget(self.sb_cnt)
+        
+        fl.addSpacing(10)
+        b=QPushButton("Start Configuration"); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.clicked.connect(self.start); fl.addWidget(b)
+        
+        bs=QPushButton("UI Settings"); bs.setCursor(Qt.CursorShape.PointingHandCursor)
+        bs.setStyleSheet("background-color: #444; color: white; border-radius: 5px; padding: 12px; font-size: 16px; font-weight: bold;")
+        bs.clicked.connect(self.settings); fl.addWidget(bs)
+        
+        cl.addWidget(f); l.addWidget(c)
+
+    def settings(self):
+        d = SettingsDialog(self)
+        if d.exec():
+            f, r = d.get_values()
+            self.main.apply_settings(f, r)
+
+    def start(self):
+        self.main.ed.init_sensors(self.cb_mod.currentText(), self.sb_cnt.value())
+        self.main.t.setCurrentIndex(1)
+
 class EditorTab(QWidget):
     def __init__(self, main):
         super().__init__()
         self.main = main; l = QHBoxLayout(self)
+        self.current_model = "Sick Nanoscan3Pro"
         
         # Left Scene
         lc=QWidget(); lv=QVBoxLayout(lc); lv.setContentsMargins(0,0,0,0)
         tb=QHBoxLayout(); tb.addWidget(QLabel("Show:"))
-        for k in ['FootPrint','L1','L2']:
+        for k in ['FootPrint','Load_1','Load_2']:
             c=QCheckBox(k); c.setChecked(True); c.toggled.connect(lambda v,x=k: self.tog(x,v)); tb.addWidget(c)
         tb.addStretch(); lv.addLayout(tb)
         self.scn=EditorScene(); self.view=RulerView(self.scn)
@@ -615,12 +688,12 @@ class EditorTab(QWidget):
         ba.clicked.connect(self.add); bd.clicked.connect(self.dele); rv.addLayout(bb)
         
         fm=QGridLayout()
-        self.i_nm=QLineEdit(); self.i_mod=QComboBox(); self.i_mod.addItems(["nanoScan3"])
+        self.i_nm=QLineEdit()
         self.i_x=QLineEdit(); self.i_y=QLineEdit()
         self.i_mn=QLineEdit(); self.i_fv=QLineEdit(); self.i_rg=QLineEdit() # ADDED RANGE INPUT
         self.i_dia=QLineEdit(); self.i_flp=QCheckBox("Flipped (Upside Down)")
         
-        fm.addWidget(QLabel("Nm"),0,0); fm.addWidget(self.i_nm,0,1); fm.addWidget(self.i_mod,0,2)
+        fm.addWidget(QLabel("Name"),0,0); fm.addWidget(self.i_nm,0,1,1,3)
         fm.addWidget(QLabel("X"),1,0); fm.addWidget(self.i_x,1,1); fm.addWidget(QLabel("Y"),1,2); fm.addWidget(self.i_y,1,3)
         fm.addWidget(QLabel("Deg"),2,0); fm.addWidget(self.i_mn,2,1); fm.addWidget(QLabel("FOV"),2,2); fm.addWidget(self.i_fv,2,3)
         fm.addWidget(QLabel("Rng"),3,0); fm.addWidget(self.i_rg,3,1); fm.addWidget(QLabel("Dia"),3,2); fm.addWidget(self.i_dia,3,3)
@@ -645,13 +718,20 @@ class EditorTab(QWidget):
         gc.addWidget(be); gc.addWidget(bi); rv.addLayout(gc)
         
         bn=QPushButton("Next >"); bn.setStyleSheet("background:teal;font-weight:bold;padding:6px;margin-top:5px")
-        bn.clicked.connect(lambda: self.main.t.setCurrentIndex(1)); rv.addWidget(bn)
+        bn.clicked.connect(lambda: self.main.t.setCurrentIndex(2)); rv.addWidget(bn)
         rv.addStretch(); l.addWidget(r)
         
         self.polys={'FootPrint':[],'L1':[],'L2':[]}
-        self.sens=[{'name':'Main','model':'nanoScan3','x':0.45,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15,'flipped':False}]
+        self.sens=[{'name':'Main','model':'Sick Nanoscan3Pro','x':0.45,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15,'flipped':False}]
         self.upl(); QTimer.singleShot(100, lambda: self.view.centerOn(0,0))
     
+    def init_sensors(self, mod, cnt):
+        self.current_model = mod
+        self.sens=[]
+        for i in range(cnt):
+            self.sens.append({'name':f'Lidar{i+1}','model':mod,'x':0.45 if i==0 else -0.45,'y':0,'mount':0 if i==0 else 180,'fov':270,'r':10.0,'dia':0.15,'flipped':False})
+        self.upl(); self.main.hw.update_ui_for_model(mod)
+
     def load_sh(self, k): 
         f,_=QFileDialog.getOpenFileName(self,"","","DXF (*.dxf)");
         if f:
@@ -667,7 +747,7 @@ class EditorTab(QWidget):
         self.lst.clear(); [self.lst.addItem(s['name']) for s in self.sens]; self.scn.update_sensors(self.sens)
     def ld(self, r): 
         if r>=0: 
-            d=self.sens[r]; self.i_nm.setText(d['name']); self.i_mod.setCurrentText(d.get('model','nanoScan3'))
+            d=self.sens[r]; self.i_nm.setText(d['name'])
             self.i_x.setText(str(d['x'])); self.i_y.setText(str(d['y'])); self.i_mn.setText(str(d['mount']))
             self.i_fv.setText(str(d['fov'])); self.i_rg.setText(str(d['r'])); self.i_dia.setText(str(d.get('dia', 0.15)))
             self.i_flp.setChecked(d.get('flipped', False))
@@ -675,7 +755,7 @@ class EditorTab(QWidget):
         r=self.lst.currentRow()
         if r>=0:
             try:
-                nm=self.i_nm.text(); mod=self.i_mod.currentText()
+                nm=self.i_nm.text(); mod=self.current_model
                 x=float(self.i_x.text()); y=float(self.i_y.text())
                 mn=float(self.i_mn.text()); fv=float(self.i_fv.text())
                 rg=float(self.i_rg.text()); dia=float(self.i_dia.text())
@@ -687,7 +767,7 @@ class EditorTab(QWidget):
                 d_sep = math.hypot(s['x']-x, s['y']-y); min_sep = (s.get('dia',0.15) + dia)/2.0
                 if d_sep < min_sep: QMessageBox.critical(self, "Placement Error", f"Sensor '{nm}' overlaps with '{s['name']}'!\nDistance: {d_sep:.3f}m < Required: {min_sep:.3f}m"); return
             self.sens[r]={'name':nm,'model':mod,'x':x,'y':y,'mount':mn,'fov':fv,'r':rg,'dia':dia,'flipped':flp}; self.upl()
-    def add(self): self.sens.append({'name':'New','model':'nanoScan3','x':0,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15,'flipped':False}); self.upl()
+    def add(self): self.sens.append({'name':'New','model':self.current_model,'x':0,'y':0,'mount':0,'fov':270,'r':10.0,'dia':0.15,'flipped':False}); self.upl()
     def dele(self):
         if self.lst.currentRow() >= 0:
             del self.sens[self.lst.currentRow()]
@@ -787,7 +867,11 @@ class EditorTab(QWidget):
                         elif tgt['en']: tgt['en'].setChecked(bool(src))
 
                 s=d.get('sns',[])
-                if s: self.sens=s; self.upl()
+                if s: 
+                    self.sens=s; self.upl()
+                    if len(self.sens) > 0:
+                        self.current_model = self.sens[0].get('model', 'Sick Nanoscan3Pro')
+                        self.main.hw.update_ui_for_model(self.current_model)
                 g=d.get('geo',{})
                 if g: 
                     # Handle both legacy (list of points) and new (WKT string) formats
@@ -1071,9 +1155,67 @@ class EditHandle(QGraphicsEllipseItem):
 
 class ResultsTab(QWidget):
     def __init__(self):
-        super().__init__(); layout=QVBoxLayout(self); self.tabs=QTabWidget(); layout.addWidget(self.tabs)
+        super().__init__(); layout=QVBoxLayout(self)
+        
+        # --- Global View Controls ---
+        ctrl_frame = QFrame(); ctrl_layout = QHBoxLayout(ctrl_frame); ctrl_layout.setContentsMargins(0,0,0,0)
+        
+        ctrl_layout.addWidget(QLabel("View:"))
+        self.cmb_mode = QComboBox(); self.cmb_mode.addItems(["Composite", "LiDAR View", "Sweep Steps"])
+        self.cmb_mode.setStyleSheet("background-color: #36404A; color: white; font-weight: bold; min-width: 120px; padding: 6px; min-height: 25px;")
+        ctrl_layout.addWidget(self.cmb_mode)
+        
+        self.cmb_lidar = QComboBox(); self.cmb_lidar.setVisible(False)
+        ctrl_layout.addWidget(self.cmb_lidar)
+        
+        self.chk_wrt_lidar = QCheckBox("Wrt Lidar"); self.chk_wrt_lidar.setVisible(False)
+        ctrl_layout.addWidget(self.chk_wrt_lidar)
+        
+        self.chk_ori = QCheckBox("Retain Orientation"); self.chk_ori.setVisible(False); self.chk_ori.setChecked(True)
+        ctrl_layout.addWidget(self.chk_ori)
+        
+        self.chk_arc = QCheckBox("Show Arc"); self.chk_arc.setChecked(True)
+        ctrl_layout.addWidget(self.chk_arc)
+        
+        self.btn_edit = QPushButton("Edit Poly"); self.btn_edit.setStyleSheet("background-color: #223A5E; font-weight: bold; padding: 6px; min-height: 25px;")
+        ctrl_layout.addWidget(self.btn_edit)
+        
+        self.wdg_edit = QWidget(); ly_edit = QHBoxLayout(self.wdg_edit); ly_edit.setContentsMargins(0,0,0,0)
+        self.btn_apply = QPushButton("Apply"); self.btn_apply.setStyleSheet("background-color: #224A25; font-weight: bold; padding: 6px; min-height: 25px;")
+        self.btn_cancel = QPushButton("Cancel"); self.btn_cancel.setStyleSheet("background-color: #662222; font-weight: bold; padding: 6px; min-height: 25px;")
+        ly_edit.addWidget(self.btn_apply); ly_edit.addWidget(self.btn_cancel)
+        self.wdg_edit.setVisible(False)
+        ctrl_layout.addWidget(self.wdg_edit)
+        
+        ctrl_layout.addStretch()
+        
+        layout.addWidget(ctrl_frame)
+        
+        self.tabs=QTabWidget(); layout.addWidget(self.tabs)
+        
+        # Connections
+        self.cmb_mode.currentTextChanged.connect(self.on_global_change)
+        self.cmb_lidar.currentTextChanged.connect(self.on_global_change)
+        self.chk_wrt_lidar.toggled.connect(self.on_global_change)
+        self.chk_ori.toggled.connect(self.on_global_change)
+        self.chk_arc.toggled.connect(self.on_global_change)
+        
+        self.btn_edit.clicked.connect(self.on_edit_click)
+        self.btn_apply.clicked.connect(self.on_apply_click)
+        self.btn_cancel.clicked.connect(self.on_cancel_click)
+        
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+
     def render(self, data):
         self.tabs.clear()
+        
+        # Update Global Lidar List from first available data
+        if data and 'lidars' in data[0]:
+            self.cmb_lidar.blockSignals(True)
+            self.cmb_lidar.clear()
+            self.cmb_lidar.addItems([l['name'] for l in data[0]['lidars']])
+            self.cmb_lidar.blockSignals(False)
+            
         std = ['NoLoad', 'Load1', 'Load2']
         g = {k:[] for k in std}; g['Misc'] = []
         
@@ -1084,253 +1226,316 @@ class ResultsTab(QWidget):
         for k in std + ['Misc']:
             items = g[k]
             if not items: continue
+            self.init_tab_ui(k, items)
             
-            w=QWidget(); h=QHBoxLayout(w); ls=QListWidget(); ls.setFixedWidth(200)
-            [ls.addItem(i['desc']) for i in items]
-            
-            scn=BaseGridScene(); view=RulerView(scn)
-            txt=QTextEdit(); txt.setFont(QFont("Consolas",9)); txt.setFixedWidth(250)
-            
-            # View Selector
-            cmb = QComboBox(); cmb.addItems(["Composite", "Sweep Steps"])
-            cmb.setMinimumHeight(40); cmb.setFont(QFont("Arial", 12))
-            cmb.setStyleSheet("background-color: #36404A; color: white; font-weight: bold;")
-            chk_ed = QCheckBox("Edit Poly")
-            chk_arc = QCheckBox("Show Arc"); chk_arc.setChecked(k != 'Misc')
-            if items:
-                for l in items[0]['lidars']: cmb.addItem(f"Lidar: {l['name']}")
-            
-            mid=QWidget(); ml=QVBoxLayout(mid); ml.setContentsMargins(0,0,0,0)
-            
-            chk_lidar = QCheckBox("Show Wrt Lidar"); chk_lidar.setVisible(False)
-            hb = QHBoxLayout(); hb.addWidget(chk_lidar); hb.addWidget(chk_ed); hb.addWidget(chk_arc); hb.addStretch()
-            ml.addWidget(cmb); ml.addLayout(hb); ml.addWidget(view)
-            
-            def on_sel(row=None, items=items, scn=scn, txt=txt, cmb=cmb, ls=ls, chk=chk_ed, chk_l=chk_lidar, chk_a=chk_arc):
-                if row is None: row=ls.currentRow()
-                if row<0:return
-                myself = getattr(ls, 'on_sel_ref', None)
-                d=items[row]; scn.clear()
-                mode = cmb.currentText()
-                
-                # Frame Logic
-                is_lidar = mode.startswith("Lidar:")
-                chk_l.setVisible(is_lidar)
-                if not is_lidar and chk_l.isChecked(): 
-                    chk_l.blockSignals(True); chk_l.setChecked(False); chk_l.blockSignals(False)
-                
-                wrt_lidar = is_lidar and chk_l.isChecked()
-                if wrt_lidar: chk.setChecked(False); chk.setEnabled(False)
-                else: chk.setEnabled(True)
-                
-                # Transform
-                tf_off=np.array([0.0,0.0]); tf_rot=0.0
-                if wrt_lidar:
-                    ln=mode.split(": ")[1]
-                    for l in d['lidars']:
-                        if l['name']==ln: tf_off=np.array(l['origin']); break
-                
-                c,s=np.cos(-tf_rot),np.sin(-tf_rot); R=np.array([[c,-s],[s,c]])
-                
-                def tf_pts(pts):
-                    a=np.array(pts)-tf_off; a=a@R.T
-                    return [QPointF(p[0]*SCALE,-p[1]*SCALE) for p in a]
-                
-                chk.setVisible(mode == "Composite")
-                chk_a.setVisible(mode == "Composite")
-                
-                lidar_gfx = []
-                def draw_dynamic_lidars():
-                    for item in lidar_gfx: 
-                        if item.scene() == scn: scn.removeItem(item)
-                    lidar_gfx.clear()
-                    
-                    tr=""; cols=['cyan','lime','magenta']
-                    for i,l in enumerate(d['lidars']):
-                        if wrt_lidar and l['name'] != ln: continue
-                        tr += f"\n--- {l['name']} ---\n"
-                        
-                        geoms = []
-                        if not l['clip'].is_empty:
-                            geoms = list(l['clip'].geoms) if hasattr(l['clip'], 'geoms') else [l['clip']]
-                        
-                        for kidx, g in enumerate(geoms):
-                            if g.geom_type == 'Polygon':
-                                pts = np.array(g.exterior.coords)
-                                tf_a = (pts - tf_off) @ R.T
-                                tr += f"poly {kidx}:\n"
-                                for px,py in tf_a: tr+=f"{px:.3f}, {py:.3f}\n"
+        self.on_global_change()
 
-                        if (mode.startswith("Lidar:") and mode == f"Lidar: {l['name']}"):
-                             if mode != "Sweep Steps":
-                                 c=cols[i%3]; clip=l['clip']
-                                 if not clip.is_empty:
-                                     cs = []
-                                     if hasattr(clip, 'geoms'): cs = list(clip.geoms)
-                                     elif not clip.is_empty: cs = [clip]
-                                     for p in cs:
-                                         if p.geom_type == 'Polygon' and hasattr(p, 'exterior'):
-                                             v=tf_pts(p.exterior.coords)
-                                             pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor(c))); pi.setOpacity(0.5); pi.setZValue(-10); scn.addItem(pi)
-                                             lidar_gfx.append(pi)
-                    
-                    if 'dist_d' in d: tr = f"Safety Dist (D): {d['dist_d']:.3f} m\n" + tr
-                    txt.setText(tr)
-                
-                # Steps
-                if 'steps' in d and mode == "Sweep Steps":
-                    for s in d['steps']:
-                        v=tf_pts(s.exterior.coords)
-                        pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("orange"))); pi.setOpacity(0.05); pi.setZValue(-10); scn.addItem(pi)
+    def on_global_change(self):
+        self.update_controls_visibility()
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'refresh_view'):
+            w.refresh_view()
 
-                # Field
-                if d['global'] and mode == "Composite":
-                     # Draw Ignored Region (Gray)
-                     if d.get('ignored_poly'):
-                         ip = d['ignored_poly']
-                         geoms = ip.geoms if hasattr(ip, 'geoms') else [ip]
-                         for p in geoms:
-                             v=tf_pts(p.exterior.coords)
-                             pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#505050"))); pi.setOpacity(0.5); pi.setPen(QPen(Qt.PenStyle.NoPen)); pi.setZValue(-15); scn.addItem(pi)
+    def update_controls_visibility(self):
+        mode = self.cmb_mode.currentText()
+        is_lidar = (mode == "LiDAR View")
+        self.cmb_lidar.setVisible(is_lidar)
+        self.chk_wrt_lidar.setVisible(is_lidar)
+        self.chk_ori.setVisible(is_lidar)
+        self.chk_arc.setVisible(mode == "Composite")
+        
+        if is_lidar:
+            if not self.chk_ori.isChecked():
+                self.chk_wrt_lidar.blockSignals(True)
+                self.chk_wrt_lidar.setChecked(True)
+                self.chk_wrt_lidar.setEnabled(False)
+                self.chk_wrt_lidar.blockSignals(False)
+            else:
+                self.chk_wrt_lidar.setEnabled(True)
+        
+        if mode != "Composite" and self.wdg_edit.isVisible():
+            self.on_cancel_click()
+        self.btn_edit.setVisible(mode == "Composite" and not self.wdg_edit.isVisible())
 
-                     poly_list = list(d['global'].geoms) if d['global'].geom_type=='MultiPolygon' else [d['global']]
-                     for i, p in enumerate(poly_list):
-                         v=tf_pts(p.exterior.coords)
-                         pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#FFD700"))); pi.setOpacity(0.4); pi.setZValue(-10); scn.addItem(pi)
-                         
-                         if chk.isChecked():
-                             def cb(v_idx, pos, p_idx=i):
-                                 old_p = poly_list[p_idx]; coords = list(old_p.exterior.coords)
-                                 
-                                 def upd_lidars():
-                                     for l in d['lidars']:
-                                         if 'fov_poly' not in l: continue
-                                         # Fix for TopologyException during live-editing.
-                                         # buffer(0) is a common trick to repair invalid geometries.
-                                         valid_global = d['global'].buffer(0)
-                                         c = valid_global.intersection(l['fov_poly'])
-                                         if d.get('load_poly'):
-                                             c = c.difference(d['load_poly'])
-                                             if l.get('shadow_poly'): c = c.difference(l['shadow_poly'])
-                                         l['clip'] = c
-                                         s_rot = np.radians(90 + l['mount'])
-                                         loc = []
-                                         if not c.is_empty:
-                                             co, si = np.cos(-s_rot), np.sin(-s_rot)
-                                             R = np.array([[co, -si], [si, co]])
-                                             gs = []
-                                             if hasattr(c, 'geoms'): gs = list(c.geoms)
-                                             elif not c.is_empty: gs = [c]
-                                             for g in gs:
-                                                 if g.geom_type == 'Polygon' and hasattr(g, 'exterior'):
-                                                     loc.append((np.array(g.exterior.coords) - np.array(l['origin'])) @ R.T)
-                                         l['local'] = loc
+    def on_edit_click(self):
+        self.wdg_edit.setVisible(True); self.btn_edit.setVisible(False)
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'enter_edit'): w.enter_edit()
 
-                                 if pos is None:
-                                     if len(coords) > 4:
-                                         del coords[v_idx]
-                                         if v_idx == 0: coords[-1] = coords[0]
-                                         poly_list[p_idx] = Polygon(coords)
-                                         if len(poly_list) > 1: d['global'] = MultiPolygon(poly_list)
-                                         else: d['global'] = poly_list[0]
-                                         upd_lidars()
-                                         if myself: QTimer.singleShot(150, lambda: myself(row))
-                                     return
-                                 wx, wy = pos.x()/SCALE, -pos.y()/SCALE
-                                 if v_idx < len(coords):
-                                     coords[v_idx] = (wx, wy)
-                                     if v_idx == 0: coords[-1] = (wx, wy)
-                                     if v_idx == len(coords)-1: coords[0] = (wx, wy)
-                                     poly_list[p_idx] = Polygon(coords)
-                                     if len(poly_list) > 1: d['global'] = MultiPolygon(poly_list)
-                                     else: d['global'] = poly_list[0]
-                                     
-                                     upd_lidars()
-                                     draw_dynamic_lidars()
-                             
-                             for k in range(len(v)-1):
-                                 scn.addItem(EditHandle(v[k].x(), v[k].y(), pi, k, cb))
-                     
-                     # Safety Distance Arc & Dot
-                     if 'traj' in d and len(d['traj']) > 0 and chk_a.isChecked() and not d.get('is_custom', False):
-                         path = QPainterPath()
-                         t_pts = d['traj']
-                         tf = tf_pts([p[:2] for p in t_pts])
-                         path.moveTo(tf[0]); [path.lineTo(p) for p in tf[1:]]
-                         
-                         pg_path = QGraphicsPathItem(path); pg_path.setPen(QPen(QColor("cyan"), 2, Qt.PenStyle.DashLine)); pg_path.setZValue(15); scn.addItem(pg_path)
-                         
-                         last = tf[-1]
-                         dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("blue"))); dot.setZValue(16)
-                     
-                     if 'front_traj' in d and len(d['front_traj']) > 0 and chk_a.isChecked() and not d.get('is_custom', False):
-                         path = QPainterPath()
-                         t_pts = d['front_traj']
-                         tf = tf_pts(t_pts)
-                         path.moveTo(tf[0]); [path.lineTo(p) for p in tf[1:]]
-                         pg_path = QGraphicsPathItem(path); pg_path.setPen(QPen(QColor("lime"), 2, Qt.PenStyle.DashLine)); pg_path.setZValue(15); scn.addItem(pg_path)
-                         last = tf[-1]
-                         dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("lime"))); dot.setZValue(16)
+    def on_apply_click(self):
+        self.wdg_edit.setVisible(False); self.btn_edit.setVisible(True)
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'apply_edit'): w.apply_edit()
 
-                # Lidars
-                for i,l in enumerate(d['lidars']):
-                    # Marker (Always)
-                    pt=tf_pts([l['origin']])[0]
-                    el=scn.addEllipse(pt.x()-5, pt.y()-5, 10,10, QPen(QColor("white")), QBrush(QColor("white")))
-                    el.setZValue(5)
-                
-                draw_dynamic_lidars()
-                
-                # Load
+    def on_cancel_click(self):
+        self.wdg_edit.setVisible(False); self.btn_edit.setVisible(True)
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'cancel_edit'): w.cancel_edit()
+
+    def on_tab_changed(self):
+        if self.wdg_edit.isVisible(): self.on_cancel_click()
+        self.on_global_change()
+
+    def init_tab_ui(self, k, items):
+        w=QWidget(); h=QHBoxLayout(w); ls=QListWidget(); ls.setFixedWidth(200)
+        [ls.addItem(i['desc']) for i in items]
+        
+        scn=BaseGridScene(); view=RulerView(scn)
+        txt=QTextEdit(); txt.setFont(QFont("Consolas",9)); txt.setFixedWidth(250)
+        
+        mid=QWidget(); ml=QVBoxLayout(mid); ml.setContentsMargins(0,0,0,0)
+        
+        ml.addWidget(view)
+        
+        # State
+        state = {'edit_backup': None}
+        
+        def recalc_lidars(d):
+            for l in d['lidars']:
+                if 'fov_poly' not in l: continue
+                valid_global = d['global'].buffer(0)
+                c = valid_global.intersection(l['fov_poly'])
                 if d.get('load_poly'):
-                    c = "#2196F3" if d['load'] == 'Load1' else "#4CAF50"
-                    lp = d['load_poly']
-                    geoms = lp.geoms if hasattr(lp, 'geoms') else [lp]
-                    for g in geoms:
-                        if g.geom_type == 'Polygon':
-                            v=tf_pts(g.exterior.coords)
-                            pg=QGraphicsPolygonItem(QPolygonF(v)); pg.setBrush(QBrush(QColor(c))); pg.setOpacity(0.3); pg.setPen(QPen(QColor(c), 2)); pg.setZValue(20); scn.addItem(pg)
-                        elif g.geom_type in ['LineString', 'LinearRing']:
-                            path = QPainterPath(); pts=tf_pts(g.coords)
-                            path.moveTo(pts[0]); [path.lineTo(p) for p in pts[1:]]
-                            pg=QGraphicsPathItem(path); pg.setPen(QPen(QColor(c), 2)); pg.setZValue(20); scn.addItem(pg)
-
-                # Base (Moved to end to overlap)
-                if d['base']: 
-                    bp = d['base']
-                    geoms = bp.geoms if hasattr(bp, 'geoms') else [bp]
-                    for g in geoms:
-                        if g.geom_type == 'Polygon':
-                            v=tf_pts(g.exterior.coords)
-                            pg=QGraphicsPolygonItem(QPolygonF(v)); pg.setPen(QPen(QColor("white"),2,Qt.PenStyle.DotLine)); pg.setZValue(10); scn.addItem(pg)
-                        elif g.geom_type in ['LineString', 'LinearRing']:
-                            path = QPainterPath(); pts=tf_pts(g.coords)
-                            path.moveTo(pts[0]); [path.lineTo(p) for p in pts[1:]]
-                            pg=QGraphicsPathItem(path); pg.setPen(QPen(QColor("white"),2,Qt.PenStyle.DotLine)); pg.setZValue(10); scn.addItem(pg)
+                    c = c.difference(d['load_poly'])
+                    if l.get('shadow_poly'): c = c.difference(l['shadow_poly'])
+                l['clip'] = c
                 
-                if wrt_lidar:
-                    bp=tf_pts([(0,0)])[0]; bx,by=bp.x(),bp.y()
-                    p1=QGraphicsLineItem(bx,by,bx+30,by); p1.setPen(QPen(QColor("#D32F2F"),2)); scn.addItem(p1)
-                    p2=QGraphicsLineItem(bx,by,bx,by-30); p2.setPen(QPen(QColor("#388E3C"),2)); scn.addItem(p2)
-                    txt_b=QGraphicsTextItem("base_link"); txt_b.setFont(QFont("Arial", 6)); txt_b.setDefaultTextColor(QColor("white")); txt_b.setPos(bx-20,by); scn.addItem(txt_b)
+                s_rot = np.radians(90 + l['mount'])
+                loc = []
+                if not c.is_empty:
+                    co, si = np.cos(-s_rot), np.sin(-s_rot)
+                    R_loc = np.array([[co, -si], [si, co]])
+                    gs = list(c.geoms) if hasattr(c, 'geoms') else [c]
+                    for g in gs:
+                        if g.geom_type == 'Polygon':
+                            loc.append((np.array(g.exterior.coords) - np.array(l['origin'])) @ R_loc.T)
+                l['local'] = loc
+
+        def refresh_view(row=None):
+            if row is None: row=ls.currentRow()
+            if row<0:return
             
-            ls.on_sel_ref = on_sel
-            ls.currentRowChanged.connect(on_sel)
-            cmb.currentIndexChanged.connect(lambda _, f=on_sel: f())
-            chk_ed.toggled.connect(lambda _, f=on_sel: f())
-            chk_lidar.toggled.connect(lambda _, f=on_sel: f())
-            chk_arc.toggled.connect(lambda _, f=on_sel: f())
-            if ls.count()>0: ls.setCurrentRow(0)
-            h.addWidget(ls); h.addWidget(mid, 1); h.addWidget(txt); self.tabs.addTab(w, k)
+            # If changing row while editing, cancel edit
+            # Handled by global tab change logic or explicit cancel
+
+            d=items[row]; scn.clear()
+            mode = self.cmb_mode.currentText()
+            
+            is_lidar_view = (mode == "LiDAR View")
+            
+            # Transform
+            tf_off=np.array([0.0,0.0]); tf_rot=0.0; tf_flip=False
+            if is_lidar_view:
+                ln = self.cmb_lidar.currentText()
+                for l in d['lidars']:
+                    if l['name']==ln: 
+                        if self.chk_wrt_lidar.isChecked():
+                            tf_off=np.array(l['origin'])
+                        if not self.chk_ori.isChecked():
+                            tf_rot=np.radians(l['mount'])
+                            tf_flip = l.get('flipped', False)
+                        break
+            
+            c,s=np.cos(-tf_rot),np.sin(-tf_rot); R=np.array([[c,-s],[s,c]])
+            
+            def tf_pts(pts):
+                a=np.array(pts)-tf_off; a=a@R.T
+                if tf_flip: a[:,0] = -a[:,0]
+                return [QPointF(p[0]*SCALE,-p[1]*SCALE) for p in a]
+            
+            lidar_gfx = []
+            def draw_dynamic_lidars():
+                for item in lidar_gfx: 
+                    if item.scene() == scn: scn.removeItem(item)
+                lidar_gfx.clear()
+                
+                tr=""; cols=['cyan','lime','magenta']
+                for i,l in enumerate(d['lidars']):
+                    if is_lidar_view and l['name'] != self.cmb_lidar.currentText(): continue
+                    tr += f"\n--- {l['name']} ---\n"
+                    
+                    geoms = []
+                    if not l['clip'].is_empty:
+                        geoms = list(l['clip'].geoms) if hasattr(l['clip'], 'geoms') else [l['clip']]
+                    
+                    for kidx, g in enumerate(geoms):
+                        if g.geom_type == 'Polygon':
+                            pts = np.array(g.exterior.coords)
+                            tf_a = (pts - tf_off) @ R.T
+                            tr += f"poly {kidx}:\n"
+                            for px,py in tf_a: tr+=f"{px:.3f}, {py:.3f}\n"
+
+                    if is_lidar_view and l['name'] == self.cmb_lidar.currentText():
+                                c=cols[i%3]; clip=l['clip']
+                                if not clip.is_empty:
+                                    cs = []
+                                    if hasattr(clip, 'geoms'): cs = list(clip.geoms)
+                                    elif not clip.is_empty: cs = [clip]
+                                    for p in cs:
+                                        if p.geom_type == 'Polygon' and hasattr(p, 'exterior'):
+                                            v=tf_pts(p.exterior.coords)
+                                            pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor(c))); pi.setOpacity(0.5); pi.setZValue(-10); scn.addItem(pi)
+                                            lidar_gfx.append(pi)
+                
+                if 'dist_d' in d: tr = f"Safety Dist (D): {d['dist_d']:.3f} m\n" + tr
+                txt.setText(tr)
+            
+            # Steps
+            if 'steps' in d and mode == "Sweep Steps":
+                for s in d['steps']:
+                    v=tf_pts(s.exterior.coords)
+                    pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("orange"))); pi.setOpacity(0.05); pi.setZValue(-10); scn.addItem(pi)
+
+            # Field
+            if d['global'] and not is_lidar_view:
+                    # Draw Ignored Region (Gray)
+                    if d.get('ignored_poly'):
+                        ip = d['ignored_poly']
+                        geoms = ip.geoms if hasattr(ip, 'geoms') else [ip]
+                        for p in geoms:
+                            v=tf_pts(p.exterior.coords)
+                            pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#505050"))); pi.setOpacity(0.5); pi.setPen(QPen(Qt.PenStyle.NoPen)); pi.setZValue(-15); scn.addItem(pi)
+
+                    poly_list = list(d['global'].geoms) if d['global'].geom_type=='MultiPolygon' else [d['global']]
+                    for i, p in enumerate(poly_list):
+                        v=tf_pts(p.exterior.coords)
+                        pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#FFD700"))); pi.setOpacity(0.4); pi.setZValue(-10); scn.addItem(pi)
+                        
+                        if self.wdg_edit.isVisible():
+                            def cb(v_idx, pos, p_idx=i):
+                                old_p = poly_list[p_idx]; coords = list(old_p.exterior.coords)
+                                
+                                if pos is None:
+                                    if len(coords) > 4:
+                                        del coords[v_idx]
+                                        if v_idx == 0: coords[-1] = coords[0]
+                                        poly_list[p_idx] = Polygon(coords)
+                                        if len(poly_list) > 1: d['global'] = MultiPolygon(poly_list)
+                                        else: d['global'] = poly_list[0]
+                                        recalc_lidars(d)
+                                        # Refresh handles if point deleted
+                                        QTimer.singleShot(50, lambda: refresh_view(row))
+                                    return
+                                wx, wy = pos.x()/SCALE, -pos.y()/SCALE
+                                if v_idx < len(coords):
+                                    coords[v_idx] = (wx, wy)
+                                    if v_idx == 0: coords[-1] = (wx, wy)
+                                    if v_idx == len(coords)-1: coords[0] = (wx, wy)
+                                    poly_list[p_idx] = Polygon(coords)
+                                    if len(poly_list) > 1: d['global'] = MultiPolygon(poly_list)
+                                    else: d['global'] = poly_list[0]
+                                    
+                                    recalc_lidars(d)
+                                    draw_dynamic_lidars()
+                            
+                            for k in range(len(v)-1):
+                                scn.addItem(EditHandle(v[k].x(), v[k].y(), pi, k, cb))
+                    
+                    # Safety Distance Arc & Dot
+                    if 'traj' in d and len(d['traj']) > 0 and self.chk_arc.isChecked() and not d.get('is_custom', False):
+                        path = QPainterPath()
+                        t_pts = d['traj']
+                        tf = tf_pts([p[:2] for p in t_pts])
+                        path.moveTo(tf[0]); [path.lineTo(p) for p in tf[1:]]
+                        
+                        pg_path = QGraphicsPathItem(path); pg_path.setPen(QPen(QColor("cyan"), 2, Qt.PenStyle.DashLine)); pg_path.setZValue(15); scn.addItem(pg_path)
+                        
+                        last = tf[-1]
+                        dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("cyan"))); dot.setZValue(16)
+                    
+                    if 'front_traj' in d and len(d['front_traj']) > 0 and self.chk_arc.isChecked() and not d.get('is_custom', False):
+                        path = QPainterPath()
+                        t_pts = d['front_traj']
+                        tf = tf_pts(t_pts)
+                        path.moveTo(tf[0]); [path.lineTo(p) for p in tf[1:]]
+                        pg_path = QGraphicsPathItem(path); pg_path.setPen(QPen(QColor("lime"), 2, Qt.PenStyle.DashLine)); pg_path.setZValue(15); scn.addItem(pg_path)
+                        last = tf[-1]
+                        dot = scn.addEllipse(last.x()-4, last.y()-4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(QColor("lime"))); dot.setZValue(16)
+
+            # Lidars
+            for i,l in enumerate(d['lidars']):
+                # Marker (Always)
+                pt=tf_pts([l['origin']])[0]
+                el=scn.addEllipse(pt.x()-5, pt.y()-5, 10,10, QPen(QColor("white")), QBrush(QColor("white")))
+                el.setZValue(5)
+            
+            draw_dynamic_lidars()
+            
+            # Load
+            if d.get('load_poly'):
+                c = "#2196F3" if d['load'] == 'Load1' else "#4CAF50"
+                lp = d['load_poly']
+                geoms = lp.geoms if hasattr(lp, 'geoms') else [lp]
+                for g in geoms:
+                    if g.geom_type == 'Polygon':
+                        v=tf_pts(g.exterior.coords)
+                        pg=QGraphicsPolygonItem(QPolygonF(v)); pg.setBrush(QBrush(QColor(c))); pg.setOpacity(0.3); pg.setPen(QPen(QColor(c), 2)); pg.setZValue(20); scn.addItem(pg)
+                    elif g.geom_type in ['LineString', 'LinearRing']:
+                        path = QPainterPath(); pts=tf_pts(g.coords)
+                        path.moveTo(pts[0]); [path.lineTo(p) for p in pts[1:]]
+                        pg=QGraphicsPathItem(path); pg.setPen(QPen(QColor(c), 2)); pg.setZValue(20); scn.addItem(pg)
+
+            # Base (Moved to end to overlap)
+            if d['base']: 
+                bp = d['base']
+                geoms = bp.geoms if hasattr(bp, 'geoms') else [bp]
+                for g in geoms:
+                    if g.geom_type == 'Polygon':
+                        v=tf_pts(g.exterior.coords)
+                        pg=QGraphicsPolygonItem(QPolygonF(v)); pg.setPen(QPen(QColor("white"),2,Qt.PenStyle.DotLine)); pg.setZValue(10); scn.addItem(pg)
+                    elif g.geom_type in ['LineString', 'LinearRing']:
+                        path = QPainterPath(); pts=tf_pts(g.coords)
+                        path.moveTo(pts[0]); [path.lineTo(p) for p in pts[1:]]
+                        pg=QGraphicsPathItem(path); pg.setPen(QPen(QColor("white"),2,Qt.PenStyle.DotLine)); pg.setZValue(10); scn.addItem(pg)
+            
+            if is_lidar_view:
+                bp=tf_pts([(0,0)])[0]; bx,by=bp.x(),bp.y()
+                p1=QGraphicsLineItem(bx,by,bx+30,by); p1.setPen(QPen(QColor("#D32F2F"),2)); scn.addItem(p1)
+                p2=QGraphicsLineItem(bx,by,bx,by-30); p2.setPen(QPen(QColor("#388E3C"),2)); scn.addItem(p2)
+                txt_b=QGraphicsTextItem("base_link"); txt_b.setFont(QFont("Arial", 6)); txt_b.setDefaultTextColor(QColor("white")); txt_b.setPos(bx-20,by); scn.addItem(txt_b)
+        
+        def enter_edit():
+            row = ls.currentRow()
+            if row < 0: return
+            d = items[row]
+            # Backup for cancel
+            state['edit_backup'] = {'row': row, 'poly': copy.deepcopy(d['global'])}
+            refresh_view()
+
+        def on_apply():
+            state['edit_backup'] = None
+            refresh_view()
+
+        def on_cancel():
+            if state['edit_backup']:
+                row = state['edit_backup']['row']
+                d = items[row]
+                d['global'] = state['edit_backup']['poly']
+                recalc_lidars(d)
+            state['edit_backup'] = None
+            refresh_view()
+
+        w.refresh_view = refresh_view
+        w.enter_edit = enter_edit
+        w.apply_edit = on_apply
+        w.cancel_edit = on_cancel
+
+        ls.currentRowChanged.connect(lambda _: refresh_view())
+        
+        if ls.count()>0: ls.setCurrentRow(0)
+        h.addWidget(ls); h.addWidget(mid, 1); h.addWidget(txt); self.tabs.addTab(w, k)
 
 # =====================================================================
 # 7. TAB 4: HARDWARE EXPORT
 # =====================================================================
 class HardwareExportTab(QWidget):
     def __init__(self, main):
-        super().__init__(); self.main=main; l=QVBoxLayout(self)
-        l.addWidget(QLabel("<h2>Hardware Export</h2>"))
+        super().__init__(); self.main=main; layout=QVBoxLayout(self)
+        self.stack = QStackedWidget(); layout.addWidget(self.stack)
         
+        # --- SICK PAGE ---
+        self.p_sick = QWidget(); l = QVBoxLayout(self.p_sick)
+        l.addWidget(QLabel("<h2>Hardware Export (Sick)</h2>"))
         self.tbl=QTableWidget(0,2); self.tbl.setHorizontalHeaderLabels(["Lidar Name", "Export Config"])
         self.tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl.setFixedHeight(120)
@@ -1416,12 +1621,39 @@ class HardwareExportTab(QWidget):
         b=QPushButton("Refresh List"); b.clicked.connect(self.load_data)       
         b.setStyleSheet("QPushButton { background:#223A5E; font-weight:bold; padding:8px; color: white; }"); bl.addWidget(b)
         l.addLayout(bl)
+        self.stack.addWidget(self.p_sick)
+        
+        # --- LEUZE PAGE ---
+        self.p_leuze = QWidget(); ll = QVBoxLayout(self.p_leuze)
+        ll.addWidget(QLabel("<h2>Hardware Export (Leuze)</h2>"))
+        self.lz_tbl = QTableWidget(0, 2); self.lz_tbl.setHorizontalHeaderLabels(["Lidar Name", "Export Config"])
+        self.lz_tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        ll.addWidget(self.lz_tbl)
+        ll.addStretch()
+        self.stack.addWidget(self.p_leuze)
         
         self.fieldsets = []
         self.xml_temp = None
 
+    def update_ui_for_model(self, mod):
+        if "Leuze" in mod:
+            self.stack.setCurrentWidget(self.p_leuze)
+            self.load_leuze_data()
+        else:
+            self.stack.setCurrentWidget(self.p_sick)
+            self.load_data()
+
+    def load_leuze_data(self):
+        self.lz_tbl.setRowCount(0); sens=self.main.ed.get_s()
+        for i, s in enumerate(sens):
+            self.lz_tbl.insertRow(i)
+            self.lz_tbl.setItem(i,0,QTableWidgetItem(s['name']))
+            btn = QPushButton("Export CSV"); btn.setStyleSheet("background:#3E2754;font-weight:bold")
+            btn.clicked.connect(lambda _, idx=i: self.export_leuze(idx))
+            self.lz_tbl.setCellWidget(i, 1, btn)
+
     def showEvent(self, ev):
-        self.load_data()
+        # Logic handled by update_ui_for_model called from Editor
         super().showEvent(ev)
 
     def load_data(self):
@@ -1507,7 +1739,7 @@ class HardwareExportTab(QWidget):
             if r.get('is_custom', False): custom_list.append(r)
             elif r['load'] in groups: groups[r['load']].append(r)
         
-        # Validation
+        # ValidationThe system uses a predefined 6-input combinational field selection matrix (hard-coded binary pattern selection), not sequential binary indexing.
         active_counts = {k: len(v) for k, v in groups.items() if len(v) > 0}
         if not active_counts and not custom_list:
              QMessageBox.warning(self, "Auto-Gen Error", "No simulation results found. Please run the simulation first."); return
@@ -1607,6 +1839,39 @@ class HardwareExportTab(QWidget):
             QMessageBox.information(self, "Success", "Exported.")
         except Exception as e: QMessageBox.critical(self, "Error", str(e))
 
+    def export_leuze(self, idx):
+        s = self.main.ed.get_s()[idx]
+        d = QFileDialog.getExistingDirectory(self, f"Select Directory for {s['name']}")
+        if not d: return
+        
+        cnt = 0
+        for r in getattr(self.main, 'sim_results', []):
+            l = next((x for x in r['lidars'] if x['name'] == s['name']), None)
+            if l and not l['clip'].is_empty:
+                safe_name = "".join(c for c in r['desc'] if c.isalnum() or c in (' ','_','-')).strip()
+                fn = os.path.join(d, f"{safe_name}.csv")
+                try:
+                    og = np.array(l['origin'])
+                    tf_rot = np.radians(l['mount'])
+                    c, si = np.cos(-tf_rot), np.sin(-tf_rot)
+                    R = np.array([[c, -si], [si, c]])
+                    geoms = l['clip'].geoms if hasattr(l['clip'], 'geoms') else [l['clip']]
+
+                    with open(fn, 'w') as fp:
+                        fp.write("x;y\n")
+                        for g in geoms:
+                            if g.geom_type == 'Polygon':
+                                pts = np.array(g.exterior.coords)
+                                tf_pts = (pts - og) @ R.T
+                                if s.get('flipped', False): tf_pts[:, 0] = -tf_pts[:, 0]
+                                for p in tf_pts:
+                                    xm, ym = p[0], p[1]; x_mm = xm * 1000.0; y_mm = ym * 1000.0
+                                    if math.hypot(x_mm, y_mm) > 1.0:
+                                        fp.write(f"{x_mm:.2f};{y_mm:.2f}\n")
+                    cnt += 1
+                except Exception as e: print(f"Error: {e}")
+        QMessageBox.information(self, "Success", f"Exported {cnt} CSV files to:\n{d}")
+
 # =====================================================================
 # 8. TAB 5: HELP
 # =====================================================================
@@ -1614,9 +1879,17 @@ class HelpTab(QWidget):
     def __init__(self):
         super().__init__()
         l = QVBoxLayout(self)
+        
+        tb = QHBoxLayout()
+        b_p = QPushButton("🔍+"); b_p.setFixedWidth(70); b_p.setToolTip("Zoom In"); b_p.clicked.connect(self.zoom_in)
+        b_m = QPushButton("🔍-"); b_m.setFixedWidth(70); b_m.setToolTip("Zoom Out"); b_m.clicked.connect(self.zoom_out)
+        tb.addWidget(b_p); tb.addWidget(b_m); tb.addStretch()
+        l.addLayout(tb)
+        
+        self.fs = 14
         t = QTextEdit()
         t.setReadOnly(True)
-        t.setStyleSheet("background-color: #2b2b2b; color: #ddd; font-size: 14px; padding: 10px;")
+        t.setStyleSheet(f"background-color: #2b2b2b; color: #ddd; font-size: {self.fs}px; padding: 10px;")
         t.setHtml("""
         <h2 style='color:#4CAF50'>Safety Studio User Guide</h2>
         <p>This tool generates safety fields for mobile robots based on kinematic footprints and braking physics.</p>
@@ -1661,10 +1934,15 @@ class HelpTab(QWidget):
         
         <h3 style='color:#2196F3'>3. Results Tab</h3>
         <ul>
-            <li><b>View:</b> Inspect the generated Global Safety Field (Yellow).</li>
-            <li><b>Sensors:</b> See how the field is clipped per sensor (Cyan/Magenta/Lime). Toggle <b>Show Wrt Lidar</b> to see the field in the sensor's coordinate frame.</li>
-            <li><b>Check:</b> Verify the safety distance arc (Cyan Dash). Use <b>Show Arc</b> to toggle visibility.</li>
-            <li><b>Edit:</b> Enable 'Edit Poly' to manually adjust field vertices.</li>
+            <li><b>View Modes:</b> Switch between <b>Composite</b> (All sensors), <b>LiDAR View</b> (Single sensor), or <b>Sweep Steps</b>.</li>
+            <li><b>Visualization:</b>
+                <ul>
+                    <li><b>Retain Orientation:</b> When enabled, keeps the view aligned with the robot (Global Frame). When disabled, rotates view to the sensor's perspective.</li>
+                    <li><b>Wrt Lidar:</b> Locks origin to the selected sensor (Auto-enabled when orientation is not retained).</li>
+                    <li><b>Show Arc:</b> Toggles the safety distance visualization arc.</li>
+                </ul>
+            </li>
+            <li><b>Editing:</b> Click <b>Edit Poly</b> to manually drag vertices of the generated field. Changes apply immediately to the configuration.</li>
         </ul>
         
         <h3 style='color:#2196F3'>4. Hardware Export Tab</h3>
@@ -1675,6 +1953,9 @@ class HelpTab(QWidget):
         </ul>
         """)
         l.addWidget(t)
+        self.t = t
+    def zoom_in(self): self.fs+=2; self.t.setStyleSheet(f"background-color: #2b2b2b; color: #ddd; font-size: {self.fs}px; padding: 10px;")
+    def zoom_out(self): self.fs=max(8,self.fs-2); self.t.setStyleSheet(f"background-color: #2b2b2b; color: #ddd; font-size: {self.fs}px; padding: 10px;")
 
 # =====================================================================
 # 8. MAIN
@@ -1683,9 +1964,26 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__(); self.resize(1400,900); self.setWindowTitle("Safety Studio V" + VERSION)
         self.sim_results = []
-        self.t=QTabWidget(); self.ed=EditorTab(self); self.gn=GenTab(self); self.rs=ResultsTab(); self.hw=HardwareExportTab(self); self.hl=HelpTab()
-        self.t.addTab(self.ed,"Editor"); self.t.addTab(self.gn,"Gen"); self.t.addTab(self.rs,"Result"); self.t.addTab(self.hw,"Hardware Export"); self.t.addTab(self.hl,"Help")
+        self.t=QTabWidget(); self.hm=HomeTab(self); self.ed=EditorTab(self); self.gn=GenTab(self); self.rs=ResultsTab(); self.hw=HardwareExportTab(self); self.hl=HelpTab()
+        self.t.addTab(self.hm,"Home"); self.t.addTab(self.ed,"Editor"); self.t.addTab(self.gn,"Gen"); self.t.addTab(self.rs,"Result"); self.t.addTab(self.hw,"Hardware Export"); self.t.addTab(self.hl,"Help")
         self.setCentralWidget(self.t)
+        self.apply_settings(16, reset=False)
+
+    def apply_settings(self, f, reset=False):
+        if reset:
+            self.setStyleSheet("")
+            return
+        self.setStyleSheet(f"""
+            QLabel, QPushButton, QLineEdit, QComboBox, QCheckBox, QRadioButton, QGroupBox, QTableWidget, QListWidget, QTextEdit, QHeaderView, QTabBar::tab {{ font-size: {f}px; }}
+            QPushButton {{ padding: 6px; }}
+            QComboBox {{ padding: 5px; }}
+            QLineEdit {{ padding: 5px; }}
+            QTableWidget {{ font-size: {f}px; }}
+            QHeaderView::section {{ padding: 4px; }}
+            QWidget:disabled {{ color: #808080; }}
+            QCheckBox:disabled, QRadioButton:disabled {{ color: #808080; }}
+            QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{ background-color: #505050; border: 1px solid #666; }}
+        """)
 
     def run_sim(self):
         FootPrint=self.ed.polys['FootPrint']; sens=self.ed.get_s(); gn=self.gn
@@ -1731,11 +2029,11 @@ class App(QMainWindow):
                 
                 res.append({'desc':f"{ltype} {v} {w}", 'load':ltype, 'global':gf, 'lidars':lid, 'base':bpoly, 'steps':stp, 'load_poly':lp, 'traj':trj, 'dist_d':val_d, 'front_traj':ftrj, 'ignored_poly':ign, 'is_custom': ovr is not None})
             except:pass
-        self.sim_results = res; self.rs.render(res); self.t.setCurrentIndex(2)
+        self.sim_results = res; self.rs.render(res); self.t.setCurrentIndex(3)
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     app=QApplication(sys.argv); app.setStyle("Fusion")
     pal=QPalette(); pal.setColor(QPalette.ColorRole.Window, QColor(50,50,50)); pal.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white); pal.setColor(QPalette.ColorRole.Base, QColor(35,35,35)); pal.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white); pal.setColor(QPalette.ColorRole.Button, QColor(50,50,50)); pal.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
     app.setPalette(pal)
-    w=App(); w.show(); sys.exit(app.exec())
+    w=App(); w.showMaximized(); sys.exit(app.exec())
