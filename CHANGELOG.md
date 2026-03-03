@@ -2,14 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0]
+
+### Added
+
+- **UI Settings:** Added global UI settings dialog (Home Tab) to adjust base font size and reset UI layout.
+- **Results Tab:** Added global view controls bar to persist view settings across different load cases.
+- **Results Tab:** Added "Retain Orientation" toggle. When disabled, the view rotates to align with the selected LiDAR.
+- **Help Tab:** Added zoom controls for documentation text.
+
+### Changed
+
+- **Results Tab:** View controls (Mode, LiDAR selection, etc.) are now global and persist when switching between result tabs.
+- **Results Tab:** "Wrt Lidar" is now automatically managed based on the "Retain Orientation" state.
+- **UI:** Decoupled widget padding from font size to prevent layout issues at larger font sizes.
+- **UI:** Added visual styling for disabled elements (grayed out).
+- **Hardware Export:** Leuze CSV export now mirrors coordinates if the "Flipped" flag is set.
+
+### Fixed
+
+- **Results Tab:** Fixed polygon editor visibility and refresh issues when switching tabs or applying changes.
+- **Results Tab:** Fixed scope bugs where view settings would apply to the wrong tab.
 
 ## [1.4.2]
 
 ### Added
+
 - **Batch Operations:** Added multi-select and Delete key support to Plan Generation table, Fieldsets list, and Fields table.
 - **Editor:** Added exemption allowing overlapping LiDAR placement.
 
 ### Changed
+
 - **Gen Tab:** Preset angular velocities updated to rad/s (0.6, 0.4, 0.3).
 - **Gen Tab:** "Import Field DXF" button removed; functionality integrated into "Custom Field" table cell click.
 - **Gen Tab:** "Clear Field DXF" now supports batch clearing.
