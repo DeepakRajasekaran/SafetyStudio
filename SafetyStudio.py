@@ -451,7 +451,7 @@ class SafetyMath:
                     gs=clip_indiv.geoms if clip_indiv.geom_type=='MultiPolygon' else [clip_indiv]
                     for g in gs: loc.append( (np.array(g.exterior.coords)-np.array(og)) @ R.T )
                 
-                lid_out.append({'name':s['name'], 'model':s.get('model',''), 'clip':clip_indiv, 'origin':og, 'local':loc, 'fov_poly':fov, 'shadow_poly':shadow, 'mount':s['mount'], 'flipped':s.get('flipped', False)})
+                lid_out.append({'name':s['name'], 'model':s.get('model',''), 'clip':clip_indiv, 'origin':og, 'local':loc, 'fov_poly':fov, 'shadow_poly':shadow, 'mount':s['mount'], 'flipped':s.get('flipped', False), 'r':max_r, 'dia':s.get('dia',0.15)})
                 
             # Calculate Ignored Region (Kinematic Field outside Sensor FOVs)
             ignored_poly = None
@@ -1291,21 +1291,39 @@ class ResultsTab(QWidget):
         state = {'edit_backup': None}
         
         def recalc_lidars(d):
-            for l in d['lidars']:
+            all_lidars_data = d['lidars']
+            for l in all_lidars_data:
                 if 'fov_poly' not in l: continue
+                
                 valid_global = d['global'].buffer(0)
-                c = valid_global.intersection(l['fov_poly'])
+                clip = valid_global.intersection(l['fov_poly'])
+                
+                # --- Re-apply LiDAR self-occlusion ---
+                lidar_shadows = []
+                for other_l in all_lidars_data:
+                    if other_l is l: continue
+                    
+                    obs_circle = Point(other_l['origin']).buffer(other_l.get('dia', 0.15) / 2.0)
+                    
+                    if l['fov_poly'].intersects(obs_circle):
+                        sh = SafetyMath.get_shadow_wedge(l['origin'], obs_circle, l.get('r', 10.0) * 1.1)
+                        if sh: lidar_shadows.append(sh)
+                
+                if lidar_shadows:
+                    total_lidar_shadow = unary_union(lidar_shadows)
+                    clip = clip.difference(total_lidar_shadow)
+
                 if d.get('load_poly'):
-                    c = c.difference(d['load_poly'])
-                    if l.get('shadow_poly'): c = c.difference(l['shadow_poly'])
-                l['clip'] = c
+                    clip = clip.difference(d['load_poly'])
+                    if l.get('shadow_poly'): clip = clip.difference(l['shadow_poly'])
+                l['clip'] = clip
                 
                 s_rot = np.radians(90 + l['mount'])
                 loc = []
-                if not c.is_empty:
+                if not clip.is_empty:
                     co, si = np.cos(-s_rot), np.sin(-s_rot)
                     R_loc = np.array([[co, -si], [si, co]])
-                    gs = list(c.geoms) if hasattr(c, 'geoms') else [c]
+                    gs = list(clip.geoms) if hasattr(clip, 'geoms') else [clip]
                     for g in gs:
                         if g.geom_type == 'Polygon':
                             loc.append((np.array(g.exterior.coords) - np.array(l['origin'])) @ R_loc.T)
@@ -1549,6 +1567,7 @@ class HardwareExportTab(QWidget):
         ll.addWidget(QLabel("Fieldsets"))
         
         self.fs_list = QListWidget(); self.fs_list.currentRowChanged.connect(self.sel_fs)
+        self.fs_list.itemChanged.connect(self.fs_name_chg)
         self.fs_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         QShortcut(QKeySequence(Qt.Key.Key_Delete), self.fs_list, self.del_fs, context=Qt.ShortcutContext.WidgetShortcut)
         ll.addWidget(self.fs_list)
@@ -1679,12 +1698,15 @@ class HardwareExportTab(QWidget):
         for r in rows:
             if r < len(self.fieldsets): del self.fieldsets[r]
         self.refresh_fs(); self.f_tbl.setRowCount(0)
+
     def refresh_fs(self):
+        self.fs_list.blockSignals(True)
         self.fs_list.clear()
         for f in self.fieldsets:
              it = QListWidgetItem(f['name'])
              it.setFlags(it.flags() | Qt.ItemFlag.ItemIsEditable)
              self.fs_list.addItem(it)
+        self.fs_list.blockSignals(False)
     
     def sel_fs(self, r):
         if r < 0: return
@@ -1717,16 +1739,18 @@ class HardwareExportTab(QWidget):
         for fr in rows:
             if fr < len(self.fieldsets[r]['fields']): del self.fieldsets[r]['fields'][fr]
         self.sel_fs(r)
+
+    def fs_name_chg(self, item):
+        r = self.fs_list.row(item)
+        if r >= 0 and r < len(self.fieldsets):
+            self.fieldsets[r]['name'] = item.text()
     
     def f_name_chg(self, item):
         r = self.fs_list.currentRow()
-        if r >= 0 and item.column() == 0:
-            fs = self.fieldsets[r]          
-            # Update fieldset name
-            fs['name'] = item.text()
         fr = item.row()
-        if r >= 0 and fr >= 0 and item.column() == 1:
-            self.fieldsets[r]['fields'][fr]['name'] = item.text()
+        if r >= 0 and fr >= 0 and item.column() == 0:
+            if r < len(self.fieldsets) and fr < len(self.fieldsets[r]['fields']):
+                self.fieldsets[r]['fields'][fr]['name'] = item.text()
     
     def upd_case(self, fs_idx, f_idx, txt):
         self.fieldsets[fs_idx]['fields'][f_idx]['case'] = txt
@@ -1767,7 +1791,7 @@ class HardwareExportTab(QWidget):
                 fs_name = f"Set {i+1}"
                 fields = []
                 for idx, k in enumerate(active_keys):
-                    fields.append({'name': f'Field{idx+1}', 'case': groups[k][i]['desc']})
+                    fields.append({'name': groups[k][i]['desc'], 'case': groups[k][i]['desc']})
                 self.fieldsets.append({'name': fs_name, 'fields': fields})
         
         if custom_list:
@@ -1776,7 +1800,7 @@ class HardwareExportTab(QWidget):
                 fs_name = f"Custom Set {i//mx + 1}"
                 fields = []
                 for j, r in enumerate(chunk):
-                    fields.append({'name': f'Custom{i+j+1}', 'case': r['desc']})
+                    fields.append({'name': r['desc'], 'case': r['desc']})
                 self.fieldsets.append({'name': fs_name, 'fields': fields})
         self.refresh_fs(); self.f_tbl.setRowCount(0)
         QMessageBox.information(self, "Auto-Gen", f"Generated {len(self.fieldsets)} fieldsets.")
@@ -1848,7 +1872,7 @@ class HardwareExportTab(QWidget):
         for r in getattr(self.main, 'sim_results', []):
             l = next((x for x in r['lidars'] if x['name'] == s['name']), None)
             if l and not l['clip'].is_empty:
-                safe_name = "".join(c for c in r['desc'] if c.isalnum() or c in (' ','_','-')).strip()
+                safe_name = "".join(c for c in r['desc'] if c.isalnum() or c in (' ','_','-','(',')','.',',')).strip()
                 fn = os.path.join(d, f"{safe_name}.csv")
                 try:
                     og = np.array(l['origin'])
@@ -1968,6 +1992,18 @@ class App(QMainWindow):
         self.t.addTab(self.hm,"Home"); self.t.addTab(self.ed,"Editor"); self.t.addTab(self.gn,"Gen"); self.t.addTab(self.rs,"Result"); self.t.addTab(self.hw,"Hardware Export"); self.t.addTab(self.hl,"Help")
         self.setCentralWidget(self.t)
         self.apply_settings(16, reset=False)
+        self.t.currentChanged.connect(self.on_main_tab_changed)
+
+    def on_main_tab_changed(self, index):
+        widget = self.t.widget(index)
+        if widget == self.ed:
+            self.ed.upl()
+            self.ed.render()
+        elif widget == self.rs:
+            self.rs.on_global_change()
+        elif widget == self.hw:
+            model = self.ed.current_model
+            self.hw.update_ui_for_model(model)
 
     def apply_settings(self, f, reset=False):
         if reset:
@@ -2027,7 +2063,8 @@ class App(QMainWindow):
                 bpoly=FootPrint
                 if lp and P.get('include_load', False): bpoly=unary_union([bpoly, lp]).convex_hull
                 
-                res.append({'desc':f"{ltype} {v} {w}", 'load':ltype, 'global':gf, 'lidars':lid, 'base':bpoly, 'steps':stp, 'load_poly':lp, 'traj':trj, 'dist_d':val_d, 'front_traj':ftrj, 'ignored_poly':ign, 'is_custom': ovr is not None})
+                desc_str = f"{ltype}({v}, {w})" if ltype in ['NoLoad', 'Load1', 'Load2'] else str(ltype)
+                res.append({'desc':desc_str, 'load':ltype, 'global':gf, 'lidars':lid, 'base':bpoly, 'steps':stp, 'load_poly':lp, 'traj':trj, 'dist_d':val_d, 'front_traj':ftrj, 'ignored_poly':ign, 'is_custom': ovr is not None})
             except:pass
         self.sim_results = res; self.rs.render(res); self.t.setCurrentIndex(3)
 

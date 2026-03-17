@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1]
+
+### Changed
+
+- **Hardware Export:** Field names are now generated with more descriptive names during auto-generation and export. For standard cases, the format is `LoadType(LinVel, AngVel)`. For custom cases, the assigned name is used directly.
+- **Hardware Export:** Fieldset names now correctly update when edited in the list.
+- **UI:** Main tabs (Editor, Results, etc.) now refresh their content when switched to, ensuring the view is always up-to-date.
+
+### Fixed
+
+- **Results Tab:** Fixed a bug where editing a safety field polygon did not correctly re-apply LiDAR self-occlusion, leading to inaccurate individual sensor fields.
+- **Hardware Export:** Fixed a bug where editing a field's name in the table would incorrectly change the parent fieldset's name.
+- **Hardware Export:** Leuze CSV export now correctly handles filenames containing parentheses, periods, and commas.
+
 ## [1.5.0]
 
 ### Added
