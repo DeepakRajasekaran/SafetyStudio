@@ -1,0 +1,140 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<SdImportExport Timestamp="2026-01-30T09:03:27.8030268Z" Commentary="" Hash="66BF1094699B462797FC4F940E3C78AA7C5421D5954E4723076C711922DF61CD230F0898BBB344C97B0C7848DDDEBFDB569E01004CF1269010C000916C7AB391">
+  <FileInfo>
+    <ContentId>Scanner Field Export</ContentId>
+    <ContentVersion>1.2</ContentVersion>
+    <Company>SICK AG</Company>
+    <CreationToolName>SAFETY DESIGNER ENGINEERING TOOL</CreationToolName>
+    <CreationToolVersion>2025.02</CreationToolVersion>
+    <CreationComponentName>nanoScan3</CreationComponentName>
+    <CreationComponentVersion>1.19.23369.0</CreationComponentVersion>
+  </FileInfo>
+  <Devices>
+    <Device Typekey="NANS3-CAAZ30AN1P02" TypekeyVersion="1.1" TypekeyDisplayVersion="V 1.1.0" PositionX="216" PositionY="365" Rotation="45" StandingUpsideDown="false" />
+  </Devices>
+  <GlobalGeometry UseGlobalGeometry="true">
+    <Rectangle Type="CutOut" OriginX="219" OriginY="365" Height="800" Width="400" Rotation="0" />
+  </GlobalGeometry>
+  <Fieldsets>
+    <Fieldset Name="Vel : v 0.0, w 0.3">
+      <Field Name="NO_LOAD" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0">
+        <Polygon Type="Field">
+          <Point X="-340" Y="540" />
+          <Point X="-174" Y="921" />
+          <Point X="984" Y="985" />
+          <Point X="1189" Y="614" />
+          <Point X="1297" Y="-114" />
+          <Point X="901" Y="-546" />
+          <Point X="-20" Y="-837" />
+          <Point X="-417" Y="-11" />
+        </Polygon>
+      </Field>
+      <Field Name="LOAD" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0">
+        <Polygon Type="Field">
+          <Point X="-340" Y="540" />
+          <Point X="-174" Y="921" />
+          <Point X="984" Y="985" />
+          <Point X="1189" Y="614" />
+          <Point X="1297" Y="-114" />
+          <Point X="901" Y="-546" />
+          <Point X="-20" Y="-837" />
+          <Point X="-417" Y="-11" />
+        </Polygon>
+        <Circle Type="CutOut" CenterX="-101" CenterY="550" Radius="51" />
+        <Circle Type="CutOut" CenterX="-123" CenterY="-212" Radius="77" />
+        <Circle Type="CutOut" CenterX="952" CenterY="593" Radius="70" />
+      </Field>
+    </Fieldset>
+    <Fieldset Name="Vel : v 0.0, w -0.3">
+      <Field Name="NO_LOAD" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0">
+        <Polygon Type="Field">
+          <Point X="-44" Y="-809" />
+          <Point X="-508" Y="-344" />
+          <Point X="-648" Y="706" />
+          <Point X="-613" Y="1566" />
+          <Point X="-168" Y="1935" />
+          <Point X="993" Y="2106" />
+          <Point X="1412" Y="1813" />
+          <Point X="1767" Y="1033" />
+          <Point X="1630" Y="616" />
+          <Point X="1208" Y="-216" />
+          <Point X="1400" Y="-869" />
+        </Polygon>
+      </Field>
+      <Field Name="LOAD" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0">
+        <Polygon Type="Field">
+          <Point X="-44" Y="-809" />
+          <Point X="-508" Y="-344" />
+          <Point X="-648" Y="706" />
+          <Point X="-613" Y="1566" />
+          <Point X="-168" Y="1935" />
+          <Point X="993" Y="2106" />
+          <Point X="1412" Y="1813" />
+          <Point X="1767" Y="1033" />
+          <Point X="1630" Y="616" />
+          <Point X="1208" Y="-216" />
+          <Point X="1400" Y="-869" />
+        </Polygon>
+        <Circle Type="CutOut" CenterX="-101" CenterY="550" Radius="51" />
+        <Circle Type="CutOut" CenterX="-123" CenterY="-212" Radius="77" />
+        <Circle Type="CutOut" CenterX="952" CenterY="593" Radius="70" />
+      </Field>
+    </Fieldset>
+    <Fieldset Name="Vel : v 0.0, ">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (4)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (5)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (6)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (7)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (8)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (9)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (10)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (11)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (12)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (13)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (14)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Field set (15)">
+      <Field Name="Field (1)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="Field (2)" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+    <Fieldset Name="Misc">
+      <Field Name="DOCK" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+      <Field Name="CHARGE" Fieldtype="ProtectiveSafeBlanking" MultipleSampling="2" Resolution="70" TolerancePositive="0" ToleranceNegative="0" />
+    </Fieldset>
+  </Fieldsets>
+</SdImportExport>

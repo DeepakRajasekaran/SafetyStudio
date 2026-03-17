@@ -26,7 +26,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QLineF, QRectF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPalette, QPolygonF, QFontMetrics, QPainterPath, QPixmap, QImage, QKeySequence, QShortcut
 
 SCALE = 100.0  # 1m = 100px
-VERSION = "1.5.0"
+VERSION = "1.5.2"
 # =====================================================================
 # 1. CORE LOGIC
 # =====================================================================
@@ -1412,7 +1412,7 @@ class ResultsTab(QWidget):
                         geoms = ip.geoms if hasattr(ip, 'geoms') else [ip]
                         for p in geoms:
                             v=tf_pts(p.exterior.coords)
-                            pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#505050"))); pi.setOpacity(0.5); pi.setPen(QPen(Qt.PenStyle.NoPen)); pi.setZValue(-15); scn.addItem(pi)
+                            pi=QGraphicsPolygonItem(QPolygonF(v)); pi.setBrush(QBrush(QColor("#505050"))); pi.setOpacity(0.5); pi.setPen(QPen(Qt.PenStyle.NoPen)); pi.setZValue(30); scn.addItem(pi)
 
                     poly_list = list(d['global'].geoms) if d['global'].geom_type=='MultiPolygon' else [d['global']]
                     for i, p in enumerate(poly_list):
@@ -1633,10 +1633,6 @@ class HardwareExportTab(QWidget):
         self.btn_autogen.setEnabled(False)
         bl.addWidget(self.btn_autogen)
         
-        self.btn_temp = QPushButton("Load Template"); self.btn_temp.clicked.connect(self.load_temp)
-        self.btn_temp.setStyleSheet("QPushButton { background:#3E2754; font-weight:bold; padding:8px; color: white; }")
-        bl.addWidget(self.btn_temp)
-        
         b=QPushButton("Refresh List"); b.clicked.connect(self.load_data)       
         b.setStyleSheet("QPushButton { background:#223A5E; font-weight:bold; padding:8px; color: white; }"); bl.addWidget(b)
         l.addLayout(bl)
@@ -1652,7 +1648,7 @@ class HardwareExportTab(QWidget):
         self.stack.addWidget(self.p_leuze)
         
         self.fieldsets = []
-        self.xml_temp = None
+        self.xml_temp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "exampleLidar.xml")
 
     def update_ui_for_model(self, mod):
         if "Leuze" in mod:
@@ -1805,12 +1801,8 @@ class HardwareExportTab(QWidget):
         self.refresh_fs(); self.f_tbl.setRowCount(0)
         QMessageBox.information(self, "Auto-Gen", f"Generated {len(self.fieldsets)} fieldsets.")
 
-    def load_temp(self):
-        f,_=QFileDialog.getOpenFileName(self,"Load Template","","XML (*.xml *.sdxml)")
-        if f: self.xml_temp=f; QMessageBox.information(self,"OK",f"Template loaded:\n{f}")
-
     def export_xml(self, idx):
-        if not self.xml_temp: QMessageBox.warning(self,"Err","Please load an XML template first!"); return
+        if not self.xml_temp or not os.path.exists(self.xml_temp): QMessageBox.warning(self,"Err",f"Template not found at:\n{self.xml_temp}\n\nPlease ensure the template file exists."); return
         s = self.main.ed.get_s()[idx]
         f, _ = QFileDialog.getSaveFileName(self, f"Export {s['name']}", f"{s['name']}.sdxml", "SICK Data XML (*.sdxml)")
         if not f: return
@@ -1828,6 +1820,34 @@ class HardwareExportTab(QWidget):
                     d.set('Rotation', str(s['mount'] % 360))
                     d.set('StandingUpsideDown', "true" if s.get('flipped', False) else "false")
             
+            # Update GlobalGeometry (Ignored Poly)
+            sim_res = getattr(self.main, 'sim_results', [])
+            ign_polys = []
+            for fs in self.fieldsets:
+                for fld in fs['fields']:
+                    case_data = next((r for r in sim_res if r['desc'] == fld['case']), None)
+                    if case_data and case_data.get('ignored_poly') and not case_data['ignored_poly'].is_empty:
+                        ign_polys.append(case_data['ignored_poly'])
+            
+            if ign_polys:
+                u_ign = unary_union(ign_polys)
+                gg = root.find('.//GlobalGeometry')
+                if gg is None:
+                    if devs is not None and devs.find('Device') is not None:
+                        gg = ET.SubElement(devs.find('Device'), 'GlobalGeometry')
+                
+                if gg is not None:
+                    gg.set('UseGlobalGeometry', 'true')
+                    for c in list(gg): gg.remove(c)
+                    geoms = u_ign.geoms if hasattr(u_ign, 'geoms') else [u_ign]
+                    for g in geoms:
+                        if g.geom_type == 'Polygon':
+                            x_p = ET.SubElement(gg, 'Polygon'); x_p.set('Type', 'CutOut')
+                            pts = list(g.exterior.coords)
+                            if len(pts) > 1 and pts[0] == pts[-1]: pts.pop()
+                            for pt in pts:
+                                ET.SubElement(x_p, 'Point', {'X':str(int(pt[0]*1000)), 'Y':str(int(pt[1]*1000))})
+
             # 2. Update Fieldsets
             fs_node = root.find('Fieldsets')
             if fs_node is None: fs_node = ET.SubElement(root, 'Fieldsets')

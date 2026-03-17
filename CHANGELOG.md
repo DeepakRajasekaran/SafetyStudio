@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.2]
+
+### Added
+
+- **Hardware Export:** SICK XML export now automatically generates a secondary global footprint mask (`_Mask`) field relative to the base link.
+- **Hardware Export:** SICK XML export now translates ignored (blind) safety regions into a `CutOut` polygon within `<GlobalGeometry>`.
+
+### Changed
+
+- **Hardware Export:** Removed manual "Load Template" button; the SICK XML template is now automatically loaded from the `assets` directory.
+- **Results Tab:** Adjusted the rendering order so the ignored region (gray mask) correctly displays visually above fields and loads.
+
 ## [1.5.1]
 
 ### Changed
